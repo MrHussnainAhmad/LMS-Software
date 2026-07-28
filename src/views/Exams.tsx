@@ -8,10 +8,21 @@ import {
   Download,
   Pencil,
   Trash2,
+  FileSpreadsheet,
 } from 'lucide-react';
 import { api } from '../utils/api';
+import PageSkeleton from '../components/PageSkeleton';
+import { EmptyState, PageHead } from '../ui/Bits';
+import { useConfirm, useToast } from '../ui/Feedback';
 
 type ExamType = 'MONTHLY' | 'MID' | 'FINAL' | 'PROMOTION';
+
+const TYPE_LABEL: Record<string, string> = {
+  MONTHLY: 'Monthly',
+  MID: 'Mid term',
+  FINAL: 'Final term',
+  PROMOTION: 'Promotion',
+};
 
 function formatExamDate(value: string) {
   return new Date(`${value}T00:00:00Z`).toLocaleDateString(undefined, {
@@ -107,6 +118,9 @@ function parseCsv(text: string) {
 }
 
 export default function Exams() {
+  const toast = useToast();
+  const confirm = useConfirm();
+
   const [tab, setTab] = useState<'timetable' | 'publish'>('timetable');
   const [metadata, setMetadata] = useState<any>(null);
   const [loadingMeta, setLoadingMeta] = useState(true);
@@ -139,9 +153,10 @@ export default function Exams() {
   const [success, setSuccess] = useState(false);
   const [isDownloadingTemplate, setIsDownloadingTemplate] = useState(false);
 
-  const classes = metadata?.allClasses || [];
-  const subjects = metadata?.allSubjects || [];
-  const sections = metadata?.allSections || [];
+  // Stable references so the memos below don't recompute on every keystroke.
+  const classes = useMemo(() => metadata?.allClasses || [], [metadata]);
+  const subjects = useMemo(() => metadata?.allSubjects || [], [metadata]);
+  const sections = useMemo(() => metadata?.allSections || [], [metadata]);
 
   const availableSections = classId ? sections.filter((s: any) => s.classId === Number(classId)) : [];
   const selectedTimetableSubjects = useMemo(
@@ -229,6 +244,9 @@ export default function Exams() {
         subjectIds: ttSubjectIds,
       };
 
+      const wasEditing = Boolean(editingGroup);
+      const savedTitle = ttTitle.trim();
+
       if (editingGroup) {
         await api.patch('/institution/exams', payload);
       } else {
@@ -237,6 +255,10 @@ export default function Exams() {
 
       resetTimetableForm();
       await loadTimetable();
+      toast.success(
+        wasEditing ? 'Exam dates updated' : 'Exam scheduled',
+        `${savedTitle} — every student in the class now sees the datesheet.`,
+      );
     } catch (err: any) {
       setTimetableError(err.message || 'Failed to save exam timetable');
     } finally {
@@ -245,13 +267,20 @@ export default function Exams() {
   }
 
   async function deleteGroup(group: any) {
-    if (!confirm(`Delete "${group.title}"?`)) return;
+    const ok = await confirm({
+      title: `Delete “${group.title}”?`,
+      body: `All ${group.subjectCount} paper dates for ${group.className} are removed from the datesheet. Marks already published are not affected.`,
+      confirmLabel: 'Delete exam',
+      tone: 'danger',
+    });
+    if (!ok) return;
     try {
       await api.delete('/institution/exams', { examIds: group.examIds });
       if (editingGroup?.key === group.key) resetTimetableForm();
       await loadTimetable();
+      toast.info('Exam deleted', `${group.title} is off the datesheet.`);
     } catch (err: any) {
-      alert(err.message || 'Failed to delete exam');
+      toast.error('Could not delete the exam', err.message || 'Failed to delete exam');
     }
   }
 
@@ -296,7 +325,7 @@ export default function Exams() {
       link.click();
       URL.revokeObjectURL(objectUrl);
     } catch (err: any) {
-      alert(err.message || 'Failed to download template');
+      toast.error('Could not build the template', err.message || 'Failed to download template');
     } finally {
       setIsDownloadingTemplate(false);
     }
@@ -393,352 +422,482 @@ export default function Exams() {
   }
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-500">
-      <div>
-        <h1 className="text-3xl font-bold text-white tracking-tight">Exam Management</h1>
-        <p className="text-slate-400 mt-1">Create institution exams and publish batch results like the web app.</p>
-      </div>
-
-      <div className="flex gap-2 bg-slate-800/50 p-1 rounded-xl border border-slate-700/50 w-fit">
-        <button
-          onClick={() => setTab('timetable')}
-          className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${tab === 'timetable' ? 'bg-indigo-500 text-white' : 'text-slate-400 hover:text-slate-200'}`}
-        >
-          Exam Timetable
-        </button>
-        <button
-          onClick={() => setTab('publish')}
-          className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${tab === 'publish' ? 'bg-indigo-500 text-white' : 'text-slate-400 hover:text-slate-200'}`}
-        >
-          Publish Results
-        </button>
-      </div>
-
-      {tab === 'timetable' ? (
-        <div className="grid grid-cols-1 lg:grid-cols-[420px_1fr] gap-6">
-          <div className="bg-slate-800/50 backdrop-blur-xl border border-slate-700/50 rounded-2xl shadow-xl overflow-hidden h-fit">
-            <div className="border-b border-slate-700/50 p-4 bg-slate-800/30">
-              <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                <CalendarDays className="w-5 h-5 text-indigo-400" />
-                {editingGroup ? 'Update Institution Exam' : 'Create Institution Exam'}
-              </h2>
-            </div>
-            <div className="p-6">
-              <form onSubmit={submitTimetable} className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-400 mb-1">Class</label>
-                  <select value={ttClassId} onChange={(e) => setTtClassId(e.target.value)} required className="w-full rounded-md border border-slate-700/50 px-3 py-2 text-sm bg-slate-900/50 text-white">
-                    <option value="">Select class...</option>
-                    {classes.map((classRow: any) => (
-                      <option key={classRow.id} value={classRow.id}>{classRow.name}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-slate-400 mb-1">Exam Type</label>
-                  <select value={ttType} onChange={(e) => setTtType(e.target.value as ExamType)} required className="w-full rounded-md border border-slate-700/50 px-3 py-2 text-sm bg-slate-900/50 text-white">
-                    <option value="MONTHLY">Monthly</option>
-                    <option value="MID">Mid</option>
-                    <option value="FINAL">Final</option>
-                    <option value="PROMOTION">Promotion</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-slate-400 mb-1">Title</label>
-                  <input value={ttTitle} onChange={(e) => setTtTitle(e.target.value)} required placeholder="e.g. Final Term 2026" className="w-full rounded-md border border-slate-700/50 px-3 py-2 text-sm bg-slate-900/50 text-white" />
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-400 mb-1">Start Date</label>
-                    <input type="date" required value={ttDate} onChange={(e) => setTtDate(e.target.value)} className="w-full rounded-md border border-slate-700/50 px-3 py-2 text-sm bg-slate-900/50 text-white" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-400 mb-1">Total Marks</label>
-                    <input type="number" min="1" step="0.01" required value={ttMaxMarks} onChange={(e) => setTtMaxMarks(e.target.value)} className="w-full rounded-md border border-slate-700/50 px-3 py-2 text-sm bg-slate-900/50 text-white" />
-                  </div>
-                </div>
-
-                <div>
-                  <div className="mb-2 flex items-center justify-between gap-3">
-                    <label className="block text-sm font-medium text-slate-400">Books / Subjects</label>
-                    <button type="button" className="text-xs font-medium text-indigo-300 hover:text-indigo-200" onClick={() => setTtSubjectIds(subjects.map((subject: any) => subject.id))}>
-                      Select all
-                    </button>
-                  </div>
-                  <div className="max-h-52 overflow-y-auto rounded-md border border-slate-700/50 p-3 space-y-2 bg-slate-900/50">
-                    {subjects.length === 0 ? (
-                      <p className="text-sm text-slate-500">Create subjects first from Academics.</p>
-                    ) : (
-                      subjects.map((subject: any) => (
-                        <label key={subject.id} className="flex items-center gap-2 text-sm text-slate-200">
-                          <input type="checkbox" value={subject.id} checked={ttSubjectIds.includes(subject.id)} onChange={(e) => toggleTimetableSubject(subject.id, e.target.checked)} className="rounded border-slate-300" />
-                          {subject.name}
-                        </label>
-                      ))
-                    )}
-                  </div>
-                </div>
-
-                <div className="rounded-md border border-indigo-500/20 bg-indigo-500/10 p-3">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-semibold text-white">
-                      {startDate && endDate ? `${formatDate(startDate)} to ${formatDate(endDate)}` : 'Select start date and subjects to calculate end date'}
-                    </p>
-                    <p className="mt-1 text-xs text-slate-300">
-                      {selectedTimetableSubjects.length} subject{selectedTimetableSubjects.length === 1 ? '' : 's'} scheduled. Sundays are not used for exams
-                      {preview.skippedSundays > 0 ? `, so ${preview.skippedSundays} Sunday${preview.skippedSundays === 1 ? '' : 's'} moved the end date forward.` : '.'}
-                    </p>
-                    {preview.dates.length > 0 && (
-                      <div className="mt-3 grid gap-2">
-                        {selectedTimetableSubjects.map((subject: any, index: number) => {
-                          const subjectDate = parseDateInput(preview.dates[index]);
-                          return (
-                            <div key={subject.id} className="flex items-center justify-between gap-3 rounded-sm bg-slate-800/60 px-2 py-1.5 text-xs">
-                              <span className="truncate font-medium text-slate-200">{subject.name}</span>
-                              <span className="shrink-0 text-slate-400">{subjectDate ? formatDate(subjectDate) : '-'}</span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {timetableError && (
-                  <div className="rounded-md bg-amber-500/10 p-3 text-sm text-amber-200 border border-amber-500/20 flex items-start gap-2">
-                    <AlertTriangle className="h-5 w-5 text-amber-400 shrink-0" />
-                    <span className="mt-0.5">{timetableError}</span>
-                  </div>
-                )}
-
-                <div className="flex gap-3">
-                  {editingGroup && (
-                    <button type="button" onClick={resetTimetableForm} className="px-4 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-white">
-                      Cancel Edit
-                    </button>
-                  )}
-                  <button type="submit" disabled={savingTimetable || loadingMeta || subjects.length === 0} className="flex-1 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white px-4 py-2 rounded-xl font-medium">
-                    {savingTimetable ? 'Saving...' : editingGroup ? 'Update Exam Dates' : 'Create Exam Dates'}
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-
-          <div className="bg-slate-800/50 backdrop-blur-xl border border-slate-700/50 rounded-2xl shadow-xl overflow-hidden">
-            <div className="border-b border-slate-700/50 p-4 bg-slate-800/30">
-              <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                <ClipboardList className="w-5 h-5 text-indigo-400" />
-                Scheduled Exams
-              </h2>
-            </div>
-            <div className="p-0">
-              {loadingTimetable ? (
-                <p className="p-8 text-sm text-slate-400">Loading scheduled exams...</p>
-              ) : examRows.length === 0 ? (
-                <p className="p-8 text-sm text-slate-400">No institution exams scheduled yet.</p>
-              ) : (
-                <div>
-                  <div className="grid gap-4 border-b border-slate-700/50 p-5 xl:grid-cols-2">
-                    {examGroups.map((group) => (
-                      <div key={group.key} className="rounded-xl border border-slate-700/50 bg-slate-900/40 overflow-hidden flex flex-col">
-                        <div className="bg-slate-800/50 p-4 border-b border-slate-700/50 flex items-start justify-between gap-3">
-                          <div>
-                            <p className="font-semibold text-white text-base">{group.title}</p>
-                            <div className="flex items-center gap-2 mt-1">
-                              <span className="text-xs font-medium bg-slate-700/50 border border-slate-600 px-2 py-0.5 rounded text-slate-300">{group.className}</span>
-                              <span className="text-xs font-medium bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded">{group.type}</span>
-                            </div>
-                          </div>
-                          <span className="shrink-0 rounded-full bg-slate-700/50 border border-slate-600 px-3 py-1 text-xs font-semibold text-indigo-200">
-                            {group.subjectCount} books
-                          </span>
-                        </div>
-                        <div className="p-4 flex-1">
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-                            <div>
-                              <p className="text-slate-500 text-xs uppercase tracking-wider font-semibold mb-1">Start Date</p>
-                              <p className="font-medium text-slate-100">{formatExamDate(group.startDate)}</p>
-                            </div>
-                            <div>
-                              <p className="text-slate-500 text-xs uppercase tracking-wider font-semibold mb-1">End Date</p>
-                              <p className="font-medium text-slate-100">{formatExamDate(group.endDate)}</p>
-                            </div>
-                          </div>
-                          <p className="mt-4 text-xs text-slate-400 bg-slate-800/50 p-2 rounded border border-slate-700/50">
-                            <span className="font-medium text-slate-300">Sundays skipped: {group.skippedSundays}.</span> End date is calculated from the selected books.
-                          </p>
-                        </div>
-                        <div className="p-4 border-t border-slate-700/50 bg-slate-800/20 flex flex-wrap gap-2 mt-auto">
-                          <button onClick={() => fillEdit(group)} className="inline-flex items-center gap-2 rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-medium text-slate-200 hover:bg-slate-800">
-                            <Pencil className="h-3.5 w-3.5" />
-                            Update exam
-                          </button>
-                          <button onClick={() => deleteGroup(group)} className="inline-flex items-center gap-2 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs font-medium text-red-300 hover:bg-red-500/20">
-                            <Trash2 className="h-3.5 w-3.5" />
-                            Delete exam
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="overflow-x-auto p-1">
-                    <table className="w-full text-left border-collapse">
-                      <thead className="bg-slate-800/30">
-                        <tr className="border-b border-slate-700/50">
-                          <th className="p-4 text-sm font-semibold text-slate-300">Exam</th>
-                          <th className="p-4 text-sm font-semibold text-slate-300">Class</th>
-                          <th className="p-4 text-sm font-semibold text-slate-300">Subject</th>
-                          <th className="p-4 text-sm font-semibold text-slate-300">Subject Date</th>
-                          <th className="p-4 text-sm font-semibold text-slate-300">End Date</th>
-                          <th className="p-4 text-sm font-semibold text-slate-300 text-right">Marks</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-700/50">
-                        {examRows.map((exam) => (
-                          <tr key={exam.id} className="hover:bg-slate-700/20 transition-colors">
-                            <td className="p-4 text-slate-200 font-medium">
-                              <p className="text-white">{exam.title}</p>
-                              <p className="text-xs text-slate-500 font-normal">{exam.type}</p>
-                            </td>
-                            <td className="p-4 text-slate-400">{exam.className}</td>
-                            <td className="p-4 text-slate-400">{exam.subjectName}</td>
-                            <td className="p-4 text-slate-400">{formatExamDate(exam.date)}</td>
-                            <td className="p-4 text-slate-400">{exam.endDate ? formatExamDate(exam.endDate) : '-'}</td>
-                            <td className="p-4 text-right font-medium text-slate-200">{exam.maxMarks}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      ) : success ? (
-        <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-2xl p-8 text-center">
-          <div className="h-12 w-12 rounded-full bg-emerald-500/20 flex items-center justify-center mx-auto mb-4">
-            <CheckCircle2 className="h-6 w-6 text-emerald-400" />
-          </div>
-          <h2 className="text-xl font-bold text-emerald-200">Results Uploaded Successfully</h2>
-          <p className="text-emerald-100/80 max-w-md mx-auto mt-2">
-            The batch results have been created. Subject teachers now have 6 hours to review, edit, and publish their subject marks.
-          </p>
-          <button
-            onClick={() => {
-              setSuccess(false);
-              setParsedData([]);
-              setDetectedSubjects([]);
-              setFile(null);
-            }}
-            className="mt-4 px-4 py-2 rounded-xl border border-emerald-500/30 text-emerald-200 hover:bg-emerald-500/10"
-          >
-            Upload Another
+    <div className="page">
+      <PageHead
+        title="Exams"
+        subtitle="Set the datesheet for a class, then hand marks over to subject teachers for review before results go out."
+      >
+        <div className="seg" role="group" aria-label="Exam sections">
+          <button type="button" aria-pressed={tab === 'timetable'} onClick={() => setTab('timetable')}>
+            Datesheet
+          </button>
+          <button type="button" aria-pressed={tab === 'publish'} onClick={() => setTab('publish')}>
+            Publish results
           </button>
         </div>
-      ) : (
-        <div className="max-w-4xl bg-slate-800/50 backdrop-blur-xl border border-slate-700/50 rounded-2xl shadow-xl overflow-hidden">
-          <div className="border-b border-slate-700/50 p-4 bg-slate-800/30">
-            <h2 className="text-lg font-bold text-white">Exam Details</h2>
-            <p className="text-sm text-slate-400 mt-1">Enter exam details and upload the CSV sheet containing the marks.</p>
+      </PageHead>
+
+      {tab === 'timetable' ? (
+        <div className="split">
+          <div className="stack">
+            <section className="card">
+              <div className="card-head">
+                <div className="card-head-copy">
+                  <h2 className="card-title">
+                    <ClipboardList aria-hidden="true" />
+                    Scheduled exams
+                  </h2>
+                  <p className="card-sub">
+                    {loadingTimetable
+                      ? 'Loading…'
+                      : `${examGroups.length} ${examGroups.length === 1 ? 'exam' : 'exams'} · ${examRows.length} papers`}
+                  </p>
+                </div>
+              </div>
+
+              {loadingTimetable ? (
+                <div className="card-pad">
+                  <PageSkeleton rows={4} />
+                </div>
+              ) : examRows.length === 0 ? (
+                <EmptyState
+                  icon={<CalendarDays />}
+                  title="No exams scheduled yet"
+                  text="Fill in the form beside this panel. Pick the books, and the dates lay themselves out one paper a day, skipping Sundays."
+                />
+              ) : (
+                <div className="card-pad grid-cards">
+                  {examGroups.map((group) => (
+                    <article key={group.key} className="card card-hover">
+                      <div className="card-pad stack" style={{ gap: 12 }}>
+                        <div className="row-between" style={{ alignItems: 'flex-start', gap: 12 }}>
+                          <div className="stack" style={{ gap: 7, minWidth: 0 }}>
+                            <b style={{ fontSize: '0.9375rem', fontWeight: 650 }}>{group.title}</b>
+                            <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+                              <span className="chip chip-mute">{group.className}</span>
+                              <span className="chip chip-brand">{TYPE_LABEL[group.type] || group.type}</span>
+                            </div>
+                          </div>
+                          <span className="chip chip-info" style={{ flexShrink: 0 }}>
+                            {group.subjectCount} {group.subjectCount === 1 ? 'book' : 'books'}
+                          </span>
+                        </div>
+
+                        <div className="row" style={{ gap: 20 }}>
+                          <span className="cell-stack">
+                            <span className="secret-label">Starts</span>
+                            <b>{formatExamDate(group.startDate)}</b>
+                          </span>
+                          <span className="cell-stack">
+                            <span className="secret-label">Ends</span>
+                            <b>{formatExamDate(group.endDate)}</b>
+                          </span>
+                        </div>
+
+                        <p style={{ color: 'var(--ink-3)', fontSize: '0.75rem' }}>
+                          {group.skippedSundays > 0
+                            ? `${group.skippedSundays} Sunday${group.skippedSundays === 1 ? '' : 's'} skipped when laying out the papers.`
+                            : 'One paper a day, no Sundays in the way.'}
+                        </p>
+
+                        <div className="row" style={{ gap: 8 }}>
+                          <button type="button" className="btn btn-quiet btn-sm" onClick={() => fillEdit(group)}>
+                            <Pencil />
+                            Edit
+                          </button>
+                          <button type="button" className="btn btn-danger btn-sm" onClick={() => deleteGroup(group)}>
+                            <Trash2 />
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </section>
+
+            {examRows.length > 0 && (
+              <section className="card">
+                <div className="card-head">
+                  <div className="card-head-copy">
+                    <h2 className="card-title">Paper by paper</h2>
+                    <p className="card-sub">The datesheet exactly as students see it.</p>
+                  </div>
+                </div>
+                <div className="table-wrap">
+                  <table className="tbl tbl-tight">
+                    <thead>
+                      <tr>
+                        <th scope="col">Exam</th>
+                        <th scope="col">Class</th>
+                        <th scope="col">Subject</th>
+                        <th scope="col">Paper date</th>
+                        <th scope="col" style={{ textAlign: 'right' }}>Marks</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {examRows.map((exam) => (
+                        <tr key={exam.id}>
+                          <td>
+                            <span className="cell-stack">
+                              <b>{exam.title}</b>
+                              <span>{TYPE_LABEL[exam.type] || exam.type}</span>
+                            </span>
+                          </td>
+                          <td>{exam.className}</td>
+                          <td className="tbl-strong">{exam.subjectName}</td>
+                          <td className="tbl-num">{formatExamDate(exam.date)}</td>
+                          <td className="tbl-num">{exam.maxMarks}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            )}
           </div>
-          <div className="p-6 space-y-6">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-slate-400">Exam Title *</label>
-                <input type="text" className="w-full rounded-md border border-slate-700/50 px-3 py-2 text-sm bg-slate-900/50 text-white" placeholder="e.g. Mid Term Exam 2026" value={title} onChange={(e) => setTitle(e.target.value)} />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-slate-400">Max Marks (Per Subject) *</label>
-                <input type="number" className="w-full rounded-md border border-slate-700/50 px-3 py-2 text-sm bg-slate-900/50 text-white" value={maxMarks} onChange={(e) => setMaxMarks(e.target.value)} />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-slate-400">Result Type *</label>
-                <select className="w-full rounded-md border border-slate-700/50 px-3 py-2 text-sm bg-slate-900/50 text-white" value={type} onChange={(e) => setType(e.target.value as ExamType)}>
-                  <option value="MONTHLY">Monthly</option>
-                  <option value="MID">Mid Term</option>
-                  <option value="FINAL">Final Term</option>
-                  <option value="PROMOTION">Promotion</option>
-                </select>
-                {type === 'PROMOTION' && <p className="text-xs text-indigo-300">Students will be auto-promoted after every subject teacher publishes their results.</p>}
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-slate-400">Class *</label>
-                <select className="w-full rounded-md border border-slate-700/50 px-3 py-2 text-sm bg-slate-900/50 text-white" value={classId} onChange={(e) => { setClassId(e.target.value); setSectionId(''); }}>
-                  <option value="">Select a class...</option>
-                  {classes.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-slate-400">Section</label>
-                <select className="w-full rounded-md border border-slate-700/50 px-3 py-2 text-sm bg-slate-900/50 text-white" value={sectionId} onChange={(e) => setSectionId(e.target.value)} disabled={!classId || availableSections.length === 0}>
-                  <option value="">{availableSections.length > 0 ? 'Select a section...' : 'No sections available'}</option>
-                  {availableSections.map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}
-                </select>
+
+          <aside className="card">
+            <div className="card-head">
+              <div className="card-head-copy">
+                <h2 className="card-title">
+                  <CalendarDays aria-hidden="true" />
+                  {editingGroup ? 'Update exam' : 'New exam'}
+                </h2>
+                <p className="card-sub">
+                  {editingGroup ? `Editing “${editingGroup.title}”.` : 'Papers are laid out one a day from the start date.'}
+                </p>
               </div>
             </div>
 
-            <div className="border-t border-slate-700/50 pt-6">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-medium text-slate-400">CSV Upload</h3>
+            <form onSubmit={submitTimetable} className="card-pad stack" style={{ gap: 14 }}>
+              <label className="field">
+                <span className="label">Class</span>
+                <select className="select" value={ttClassId} onChange={(e) => setTtClassId(e.target.value)} required>
+                  <option value="">Select a class…</option>
+                  {classes.map((classRow: any) => (
+                    <option key={classRow.id} value={classRow.id}>{classRow.name}</option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="field">
+                <span className="label">Exam type</span>
+                <select className="select" value={ttType} onChange={(e) => setTtType(e.target.value as ExamType)} required>
+                  <option value="MONTHLY">Monthly</option>
+                  <option value="MID">Mid</option>
+                  <option value="FINAL">Final</option>
+                  <option value="PROMOTION">Promotion</option>
+                </select>
+              </label>
+
+              <label className="field">
+                <span className="label">Title</span>
+                <input
+                  className="input"
+                  value={ttTitle}
+                  onChange={(e) => setTtTitle(e.target.value)}
+                  required
+                  placeholder="e.g. Final Term 2026"
+                />
+              </label>
+
+              <div className="form-grid form-grid-2">
+                <label className="field">
+                  <span className="label">Start date</span>
+                  <input type="date" required className="input" value={ttDate} onChange={(e) => setTtDate(e.target.value)} />
+                </label>
+                <label className="field">
+                  <span className="label">Marks per paper</span>
+                  <input
+                    type="number" min="1" step="0.01" required
+                    className="input"
+                    value={ttMaxMarks}
+                    onChange={(e) => setTtMaxMarks(e.target.value)}
+                  />
+                </label>
+              </div>
+
+              <div className="field">
+                <div className="row-between">
+                  <span className="label">Books</span>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => setTtSubjectIds(subjects.map((subject: any) => subject.id))}
+                    disabled={subjects.length === 0}
+                  >
+                    Select all
+                  </button>
+                </div>
+                <div
+                  className="stack"
+                  style={{
+                    gap: 8,
+                    maxHeight: 208,
+                    overflowY: 'auto',
+                    border: '1px solid var(--line)',
+                    borderRadius: 'var(--r-md)',
+                    padding: '12px 14px',
+                    background: 'var(--sunken, #FAF9F6)',
+                  }}
+                >
+                  {subjects.length === 0 ? (
+                    <p style={{ color: 'var(--ink-3)', fontSize: '0.8125rem' }}>
+                      No books yet — add subjects from Academics first.
+                    </p>
+                  ) : (
+                    subjects.map((subject: any) => (
+                      <label
+                        key={subject.id}
+                        className="row"
+                        style={{ gap: 9, fontSize: '0.8125rem', cursor: 'pointer' }}
+                      >
+                        <input
+                          type="checkbox"
+                          value={subject.id}
+                          checked={ttSubjectIds.includes(subject.id)}
+                          onChange={(e) => toggleTimetableSubject(subject.id, e.target.checked)}
+                        />
+                        {subject.name}
+                      </label>
+                    ))
+                  )}
+                </div>
+                <span className="field-hint">
+                  {selectedTimetableSubjects.length} selected — one paper each, in this order.
+                </span>
+              </div>
+
+              <div className="alert alert-info" style={{ display: 'block' }}>
+                <b style={{ fontSize: '0.8125rem' }}>
+                  {startDate && endDate
+                    ? `${formatDate(startDate)} → ${formatDate(endDate)}`
+                    : 'Pick a start date and some books to see the run'}
+                </b>
+                <p style={{ marginTop: 4, fontSize: '0.75rem' }}>
+                  {selectedTimetableSubjects.length} paper{selectedTimetableSubjects.length === 1 ? '' : 's'}. Sundays are never used
+                  {preview.skippedSundays > 0
+                    ? `, so ${preview.skippedSundays} Sunday${preview.skippedSundays === 1 ? '' : 's'} pushed the end date out.`
+                    : '.'}
+                </p>
+                {preview.dates.length > 0 && (
+                  <div className="stack" style={{ gap: 4, marginTop: 10 }}>
+                    {selectedTimetableSubjects.map((subject: any, index: number) => {
+                      const subjectDate = parseDateInput(preview.dates[index]);
+                      return (
+                        <div
+                          key={subject.id}
+                          className="row-between"
+                          style={{ gap: 12, fontSize: '0.75rem' }}
+                        >
+                          <span style={{ fontWeight: 550, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {subject.name}
+                          </span>
+                          <span style={{ flexShrink: 0, opacity: 0.75 }}>
+                            {subjectDate ? formatDate(subjectDate) : '—'}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {timetableError && (
+                <div className="alert alert-warn">
+                  <AlertTriangle aria-hidden="true" />
+                  <div>{timetableError}</div>
+                </div>
+              )}
+
+              <div className="row" style={{ gap: 10 }}>
+                {editingGroup && (
+                  <button type="button" className="btn btn-ghost" onClick={resetTimetableForm}>
+                    Cancel
+                  </button>
+                )}
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  style={{ flex: 1 }}
+                  disabled={savingTimetable || loadingMeta || subjects.length === 0}
+                >
+                  {savingTimetable ? 'Saving…' : editingGroup ? 'Update dates' : 'Create datesheet'}
+                </button>
+              </div>
+            </form>
+          </aside>
+        </div>
+      ) : success ? (
+        <section className="card">
+          <EmptyState
+            icon={<CheckCircle2 />}
+            title="Results are with the teachers"
+            text="Subject teachers have six hours to review and edit their marks. Once every subject is published, the result becomes official."
+            action={
+              <>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => {
+                    setSuccess(false);
+                    setParsedData([]);
+                    setDetectedSubjects([]);
+                    setFile(null);
+                  }}
+                >
+                  Upload another sheet
+                </button>
+              </>
+            }
+          />
+        </section>
+      ) : (
+        <section className="card" style={{ maxWidth: 860 }}>
+          <div className="card-head">
+            <div className="card-head-copy">
+              <h2 className="card-title">Publish a batch result</h2>
+              <p className="card-sub">
+                Describe the exam, then upload one CSV with every student&rsquo;s marks. Teachers review before anything reaches parents.
+              </p>
+            </div>
+          </div>
+
+          <div className="card-pad stack" style={{ gap: 20 }}>
+            <div className="form-grid form-grid-2">
+              <label className="field">
+                <span className="label">Exam title</span>
+                <input
+                  type="text"
+                  className="input"
+                  placeholder="e.g. Mid Term Exam 2026"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                />
+              </label>
+              <label className="field">
+                <span className="label">Max marks per subject</span>
+                <input
+                  type="number"
+                  className="input"
+                  value={maxMarks}
+                  onChange={(e) => setMaxMarks(e.target.value)}
+                />
+              </label>
+              <label className="field">
+                <span className="label">Result type</span>
+                <select className="select" value={type} onChange={(e) => setType(e.target.value as ExamType)}>
+                  <option value="MONTHLY">Monthly</option>
+                  <option value="MID">Mid term</option>
+                  <option value="FINAL">Final term</option>
+                  <option value="PROMOTION">Promotion</option>
+                </select>
+                {type === 'PROMOTION' && (
+                  <span className="field-hint">
+                    Students are promoted automatically once every subject teacher has published.
+                  </span>
+                )}
+              </label>
+              <label className="field">
+                <span className="label">Class</span>
+                <select
+                  className="select"
+                  value={classId}
+                  onChange={(e) => { setClassId(e.target.value); setSectionId(''); }}
+                >
+                  <option value="">Select a class…</option>
+                  {classes.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </label>
+              <label className="field">
+                <span className="label">Section <span style={{ color: 'var(--ink-4)', fontWeight: 500 }}>· optional</span></span>
+                <select
+                  className="select"
+                  value={sectionId}
+                  onChange={(e) => setSectionId(e.target.value)}
+                  disabled={!classId || availableSections.length === 0}
+                >
+                  <option value="">{availableSections.length > 0 ? 'Whole class' : 'No sections available'}</option>
+                  {availableSections.map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+              </label>
+            </div>
+
+            <div className="stack" style={{ gap: 12, borderTop: '1px solid var(--line)', paddingTop: 20 }}>
+              <div className="row-between" style={{ gap: 12, flexWrap: 'wrap' }}>
+                <div className="stack" style={{ gap: 3 }}>
+                  <b style={{ fontSize: '0.875rem', fontWeight: 650 }}>Marks sheet</b>
+                  <span style={{ color: 'var(--ink-3)', fontSize: '0.75rem' }}>
+                    Needs a “Roll Number” column; every other column must match a subject name or code.
+                  </span>
+                </div>
                 {classId && (
-                  <button type="button" onClick={downloadTemplate} disabled={isDownloadingTemplate} className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-700 bg-slate-900 text-white hover:bg-slate-800 text-sm">
-                    <Download className="h-4 w-4" />
-                    {isDownloadingTemplate ? 'Preparing...' : 'Download CSV Template'}
+                  <button
+                    type="button"
+                    className="btn btn-quiet btn-sm"
+                    onClick={downloadTemplate}
+                    disabled={isDownloadingTemplate}
+                  >
+                    <Download />
+                    {isDownloadingTemplate ? 'Preparing…' : 'Download template'}
                   </button>
                 )}
               </div>
 
-              <div className="flex items-center gap-3">
-                <input type="file" accept=".csv" onChange={(e) => setFile(e.target.files?.[0] || null)} className="block w-full text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-indigo-500/20 file:text-indigo-300 hover:file:bg-indigo-500/30" />
-                <button type="button" onClick={processCSV} disabled={!file} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-700 bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-50">
-                  <UploadCloud className="h-4 w-4" />
-                  Process
+              <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
+                <input
+                  type="file"
+                  accept=".csv"
+                  className="input"
+                  style={{ flex: '1 1 260px' }}
+                  onChange={(e) => setFile(e.target.files?.[0] || null)}
+                />
+                <button type="button" className="btn btn-quiet" onClick={processCSV} disabled={!file}>
+                  <UploadCloud />
+                  Check sheet
                 </button>
               </div>
-
-              <p className="text-xs text-slate-500 mt-2">
-                CSV must contain a column named "Roll Number". Other columns should exactly match subject names or codes.
-              </p>
             </div>
 
             {error && (
-              <div className="rounded-md bg-amber-500/10 p-3 text-sm text-amber-200 border border-amber-500/20 flex items-start gap-2">
-                <AlertTriangle className="h-5 w-5 text-amber-400 shrink-0" />
-                <span className="mt-0.5">{error}</span>
+              <div className="alert alert-warn">
+                <AlertTriangle aria-hidden="true" />
+                <div>{error}</div>
               </div>
             )}
 
             {parsedData.length > 0 && (
-              <div className="space-y-3 border border-slate-700/50 rounded-md p-4 bg-slate-900/40">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h4 className="font-semibold text-white">CSV Processed Successfully</h4>
-                    <p className="text-sm text-slate-400">
-                      Found {parsedData.length} students across {detectedSubjects.length} subjects.
-                    </p>
+              <div className="card">
+                <div className="card-pad stack" style={{ gap: 12 }}>
+                  <div className="row-between" style={{ gap: 16, flexWrap: 'wrap' }}>
+                    <div className="row" style={{ gap: 12 }}>
+                      <span className="initials initials-accent" aria-hidden="true">
+                        <FileSpreadsheet />
+                      </span>
+                      <div className="stack" style={{ gap: 3 }}>
+                        <b style={{ fontSize: '0.875rem', fontWeight: 650 }}>Sheet looks good</b>
+                        <span style={{ color: 'var(--ink-3)', fontSize: '0.75rem' }}>
+                          {parsedData.length} students · {detectedSubjects.length} subjects matched
+                        </span>
+                      </div>
+                    </div>
+                    <button type="button" className="btn btn-accent" onClick={submitResults} disabled={uploading}>
+                      {uploading ? 'Sending…' : 'Send to teachers'}
+                    </button>
                   </div>
-                  <button type="button" onClick={submitResults} disabled={uploading} className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-50">
-                    {uploading ? 'Uploading...' : 'Publish to Teachers'}
-                  </button>
-                </div>
 
-                <div className="flex flex-wrap gap-2 mt-2">
-                  {detectedSubjects.map((s, i) => (
-                    <span key={i} className="inline-flex items-center rounded-md bg-indigo-500/20 px-2 py-1 text-xs font-medium text-indigo-300">
-                      {s.name}
-                    </span>
-                  ))}
+                  <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+                    {detectedSubjects.map((s, i) => (
+                      <span key={i} className="chip chip-info">{s.name}</span>
+                    ))}
+                  </div>
                 </div>
               </div>
             )}
           </div>
-        </div>
+        </section>
       )}
     </div>
   );

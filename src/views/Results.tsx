@@ -1,12 +1,24 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { api } from '../utils/api';
-import { FileText, FileX } from 'lucide-react';
+import { FileText, FileX, Search, Award } from 'lucide-react';
 import PageSkeleton from '../components/PageSkeleton';
+import { EmptyState, ErrorNote, PageHead } from '../ui/Bits';
+
+type Lens = 'all' | 'official' | 'effective' | 'draft';
+
+const LENSES: { key: Lens; label: string }[] = [
+  { key: 'all', label: 'All' },
+  { key: 'official', label: 'Official' },
+  { key: 'effective', label: 'Effective' },
+  { key: 'draft', label: 'Draft' },
+];
 
 export default function Results() {
   const [batches, setBatches] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [lens, setLens] = useState<Lens>('all');
+  const [query, setQuery] = useState('');
 
   useEffect(() => {
     async function load() {
@@ -14,7 +26,8 @@ export default function Results() {
       setError('');
       try {
         const res = await api.get('/institution/batch-exams');
-        setBatches(res?.batches || []);
+        // The payload has been returned under both keys over time — accept either.
+        setBatches(res?.batches || res?.batchExams || []);
       } catch (err: any) {
         setError(err.message || 'Failed to load results');
         setBatches([]);
@@ -25,80 +38,162 @@ export default function Results() {
     load();
   }, []);
 
-  return (
-    <div className="space-y-8 animate-in fade-in duration-500">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold text-white tracking-tight">Exam Results</h1>
-          <p className="text-slate-400 mt-1">View batch-exam result status.</p>
-        </div>
-      </div>
+  function stageOf(b: any): Lens {
+    if (b.officialPublishedAt) return 'official';
+    if (b.allSubjectsPublished) return 'effective';
+    return 'draft';
+  }
 
-      {error && (
-        <div className="bg-red-500/10 border border-red-500/50 text-red-400 p-4 rounded-xl">
-          {error}
-        </div>
-      )}
+  const counts = useMemo(() => {
+    const base = { all: batches.length, official: 0, effective: 0, draft: 0 };
+    batches.forEach((b) => {
+      base[stageOf(b)] += 1;
+    });
+    return base as Record<Lens, number>;
+  }, [batches]);
+
+  const visible = useMemo(() => {
+    const term = query.trim().toLowerCase();
+    return batches.filter((b) => {
+      if (lens !== 'all' && stageOf(b) !== lens) return false;
+      if (!term) return true;
+      return [b.title, b.className, b.sectionName, b.type].some((value) =>
+        String(value || '').toLowerCase().includes(term),
+      );
+    });
+  }, [batches, lens, query]);
+
+  return (
+    <div className="page">
+      <PageHead
+        title="Results"
+        subtitle="Where every batch exam stands. Official means the result card has been signed off; effective means all subjects are in but the card is not sealed yet."
+      >
+        {batches.length > 0 && (
+          <>
+            <label className="search-field">
+              <Search aria-hidden="true" />
+              <input
+                type="search"
+                className="input"
+                placeholder="Exam, class, type…"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                aria-label="Search results"
+              />
+            </label>
+            <div className="seg" role="group" aria-label="Filter by stage">
+              {LENSES.map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  aria-pressed={lens === item.key}
+                  onClick={() => setLens(item.key)}
+                >
+                  {item.label}
+                  {counts[item.key] > 0 && <span> · {counts[item.key]}</span>}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+      </PageHead>
+
+      {error && <ErrorNote message={error} />}
 
       {loading ? (
         <PageSkeleton rows={6} />
       ) : batches.length === 0 ? (
-        <div className="bg-slate-800/50 border border-slate-700/50 rounded-2xl p-12 text-center">
-          <FileX className="w-12 h-12 text-slate-500 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-white">No Results Found</h3>
-          <p className="text-slate-400 mt-2">There are no batch exams yet.</p>
+        <div className="card">
+          <EmptyState
+            icon={<FileX />}
+            title="No batch exams yet"
+            text="Once an exam is created and marks are entered, its publication status will show up here."
+          />
         </div>
       ) : (
-        <div className="bg-slate-800/50 backdrop-blur-xl border border-slate-700/50 rounded-2xl shadow-xl overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-slate-700/50 bg-slate-800/30">
-                  <th className="p-4 text-sm font-semibold text-slate-300">Exam</th>
-                  <th className="p-4 text-sm font-semibold text-slate-300">Class</th>
-                  <th className="p-4 text-sm font-semibold text-slate-300">Type</th>
-                  <th className="p-4 text-sm font-semibold text-slate-300">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-700/50">
-                {batches.map((b) => {
-                  const status = b.officialPublishedAt
-                    ? 'Published (Official)'
-                    : b.allSubjectsPublished
-                      ? 'Published (Effective)'
-                      : 'Draft / Waiting';
-
-                  return (
-                    <tr key={b.id} className="hover:bg-slate-700/20 transition-colors">
-                      <td className="p-4 text-slate-200 font-medium flex items-center gap-2">
-                        <FileText className="w-4 h-4 text-slate-400" />
-                        {b.title}
-                      </td>
-                      <td className="p-4 text-slate-400 text-sm">
-                        {b.className}
-                        {b.sectionName ? ` • ${b.sectionName}` : ''}
-                      </td>
-                      <td className="p-4 text-slate-400 text-sm">{b.type}</td>
-                      <td className="p-4">
-                        <span
-                          className={`inline-flex px-2.5 py-1 rounded-full text-xs font-semibold ${
-                            b.officialPublishedAt
-                              ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                              : b.allSubjectsPublished
-                                ? 'bg-indigo-500/10 text-indigo-300 border border-indigo-500/20'
-                                : 'bg-slate-500/10 text-slate-300 border border-slate-500/20'
-                          }`}
-                        >
-                          {status}
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+        <section className="card">
+          <div className="card-head">
+            <div className="card-head-copy">
+              <h2 className="card-title">
+                <Award aria-hidden="true" />
+                Batch exams
+              </h2>
+              <p className="card-sub">
+                {visible.length} of {batches.length} shown
+              </p>
+            </div>
           </div>
-        </div>
+
+          {visible.length === 0 ? (
+            <EmptyState
+              icon={<Search />}
+              title="Nothing in this view"
+              text="No exam matches the current filter. Widen it to see everything again."
+              action={
+                <button
+                  type="button"
+                  className="btn btn-quiet"
+                  onClick={() => {
+                    setLens('all');
+                    setQuery('');
+                  }}
+                >
+                  Reset filters
+                </button>
+              }
+            />
+          ) : (
+            <div className="table-wrap">
+              <table className="tbl">
+                <thead>
+                  <tr>
+                    <th scope="col">Exam</th>
+                    <th scope="col">Class</th>
+                    <th scope="col">Type</th>
+                    <th scope="col">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visible.map((b) => {
+                    const stage = stageOf(b);
+                    const label =
+                      stage === 'official'
+                        ? 'Published · official'
+                        : stage === 'effective'
+                          ? 'Published · effective'
+                          : 'Draft · waiting';
+                    const tone =
+                      stage === 'official' ? 'chip-ok' : stage === 'effective' ? 'chip-info' : 'chip-mute';
+
+                    return (
+                      <tr key={b.id}>
+                        <td>
+                          <div className="row">
+                            <span className="initials" aria-hidden="true">
+                              <FileText className="w-4 h-4" />
+                            </span>
+                            <b className="tbl-strong">{b.title}</b>
+                          </div>
+                        </td>
+                        <td>
+                          <span className="cell-stack">
+                            <b>{b.className || '—'}</b>
+                            {b.sectionName && <span>Section {b.sectionName}</span>}
+                          </span>
+                        </td>
+                        <td>{b.type || '—'}</td>
+                        <td>
+                          <span className={`chip ${tone}`}>{label}</span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
       )}
     </div>
   );

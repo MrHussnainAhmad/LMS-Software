@@ -1,7 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { api } from '../utils/api';
-import { Plus, Building2 } from 'lucide-react';
+import { Plus, Building2, MapPin, Search, Wrench, CheckCircle2 } from 'lucide-react';
 import PageSkeleton from '../components/PageSkeleton';
+import Modal from '../ui/Modal';
+import { EmptyState, ErrorNote, PageHead } from '../ui/Bits';
+import { useToast } from '../ui/Feedback';
 
 interface Campus {
   id: number;
@@ -12,32 +15,35 @@ interface Campus {
 }
 
 export default function Campuses() {
+  const toast = useToast();
   const [campuses, setCampuses] = useState<Campus[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  
+  const [query, setQuery] = useState('');
+
   const [showAdd, setShowAdd] = useState(false);
   const [formData, setFormData] = useState({ name: '', location: '', status: 'Active' });
   const [saving, setSaving] = useState(false);
-  
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
     try {
       await api.post('/institution/campuses', formData);
+      const created = formData.name;
       setShowAdd(false);
       setFormData({ name: '', location: '', status: 'Active' });
       // Refresh
       const data = await api.get('/institution/campuses');
       const list = data?.campuses || [];
       setCampuses(list);
+      toast.success('Campus added', `${created} is now available in the campus selector.`);
     } catch (err: any) {
-      alert(err.message || 'Failed to create campus');
+      toast.error('Could not add campus', err.message || 'Failed to create campus');
     } finally {
       setSaving(false);
     }
   }
-
 
   useEffect(() => {
     async function fetchCampuses() {
@@ -53,80 +59,171 @@ export default function Campuses() {
     fetchCampuses();
   }, []);
 
+  const visible = useMemo(() => {
+    const term = query.trim().toLowerCase();
+    if (!term) return campuses;
+    return campuses.filter(
+      (c) =>
+        c.name?.toLowerCase().includes(term) ||
+        String(c.address || '').toLowerCase().includes(term),
+    );
+  }, [campuses, query]);
+
   return (
-    <div className="space-y-8 animate-in fade-in duration-500">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold text-white tracking-tight">Campuses</h1>
-          <p className="text-slate-400 mt-1">Manage your institution's physical locations.</p>
-        </div>
-        <button onClick={() => setShowAdd(true)} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl font-medium shadow-lg shadow-indigo-500/20 transition-all flex items-center gap-2">
-          <Plus className="w-5 h-5" />
-          Add Campus
+    <div className="page">
+      <PageHead
+        title="Campuses"
+        subtitle="Every physical location under your institution. The campus you pick in the header filters staff, students and reporting across the app."
+      >
+        {campuses.length > 0 && (
+          <label className="search-field">
+            <Search aria-hidden="true" />
+            <input
+              type="search"
+              className="input"
+              placeholder="Find a campus…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              aria-label="Search campuses"
+            />
+          </label>
+        )}
+        <button type="button" className="btn btn-primary" onClick={() => setShowAdd(true)}>
+          <Plus />
+          Add campus
         </button>
-      </div>
+      </PageHead>
 
-      {error && (
-        <div className="bg-red-500/10 border border-red-500/50 text-red-500 p-4 rounded-xl">
-          {error}
-        </div>
-      )}
-
-      {showAdd && (
-        <div className="bg-slate-800/50 backdrop-blur-xl border border-slate-700/50 rounded-2xl p-6 shadow-xl mb-6">
-          <h2 className="text-xl font-bold text-white mb-4">Add Campus</h2>
-          <form onSubmit={handleSubmit} className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-slate-400 mb-1">Campus Name</label>
-              <input required type="text" className="w-full bg-slate-900/50 border border-slate-700/50 rounded-xl px-4 py-2 text-white" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-400 mb-1">Location / Address</label>
-              <input required type="text" className="w-full bg-slate-900/50 border border-slate-700/50 rounded-xl px-4 py-2 text-white" value={formData.location} onChange={e => setFormData({...formData, location: e.target.value})} />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-400 mb-1">Status</label>
-              <select className="w-full bg-slate-900/50 border border-slate-700/50 rounded-xl px-4 py-2 text-white" value={formData.status} onChange={e => setFormData({...formData, status: e.target.value})}>
-                <option value="Active">Active</option>
-                <option value="Maintenance">Maintenance</option>
-              </select>
-            </div>
-            <div className="col-span-2 flex justify-end gap-3 mt-4">
-              <button type="button" onClick={() => setShowAdd(false)} className="px-4 py-2 text-slate-400 hover:text-white transition-colors">Cancel</button>
-              <button type="submit" disabled={saving} className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-xl font-medium transition-all">{saving ? 'Saving...' : 'Add Campus'}</button>
-            </div>
-          </form>
-        </div>
-      )}
+      {error && <ErrorNote message={error} />}
 
       {loading ? (
         <PageSkeleton cards={3} rows={2} />
       ) : campuses.length === 0 ? (
-        <div className="bg-slate-800/50 border border-slate-700/50 rounded-2xl p-12 text-center">
-          <Building2 className="w-12 h-12 text-slate-500 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-white">No Campuses Found</h3>
-          <p className="text-slate-400 mt-2">You haven't added any campuses yet.</p>
+        <div className="card">
+          <EmptyState
+            icon={<Building2 />}
+            title="No campuses yet"
+            text="Add your first campus and the rest of the workspace — staff, students, timetables — will have somewhere to live."
+            action={
+              <button type="button" className="btn btn-primary" onClick={() => setShowAdd(true)}>
+                <Plus />
+                Add your first campus
+              </button>
+            }
+          />
+        </div>
+      ) : visible.length === 0 ? (
+        <div className="card">
+          <EmptyState
+            icon={<Search />}
+            title={`Nothing matches “${query.trim()}”`}
+            text="Try a shorter term, or clear the search to see every campus."
+            action={
+              <button type="button" className="btn btn-quiet" onClick={() => setQuery('')}>
+                Clear search
+              </button>
+            }
+          />
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {campuses.map(campus => (
-            <div key={campus.id} className="bg-slate-800/50 backdrop-blur-xl border border-slate-700/50 rounded-2xl overflow-hidden shadow-xl hover:border-slate-600 transition-colors">
-              <div className="h-32 bg-gradient-to-r from-indigo-500/20 to-purple-500/20 relative flex items-center justify-center">
-                <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-30" />
-                <Building2 className="w-16 h-16 text-indigo-400/50 relative z-10" />
-                <div className="absolute bottom-4 left-4 z-10">
-                  <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${campus.status === 'Maintenance' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'}`}>
-                    {campus.status || 'Active'}
-                  </span>
-                </div>
-              </div>
-              <div className="p-6">
-                <h3 className="text-xl font-bold text-white">{campus.name}</h3>
-              </div>
-            </div>
-          ))}
-        </div>
+        <>
+          <p className="section-rule">
+            {visible.length} {visible.length === 1 ? 'campus' : 'campuses'}
+          </p>
+          <div className="grid-cards">
+            {visible.map((campus) => {
+              const maintenance = campus.status === 'Maintenance';
+              return (
+                <article className="card card-hover" key={campus.id}>
+                  <div className="card-pad">
+                    <div className="row-between" style={{ alignItems: 'flex-start' }}>
+                      <span className="initials" aria-hidden="true">
+                        <Building2 className="w-4 h-4" />
+                      </span>
+                      <span className={`chip ${maintenance ? 'chip-warn' : 'chip-ok'}`}>
+                        {maintenance ? <Wrench aria-hidden="true" /> : <CheckCircle2 aria-hidden="true" />}
+                        {campus.status || 'Active'}
+                      </span>
+                    </div>
+                    <h3 style={{ marginTop: 14, fontSize: '0.9375rem', fontWeight: 650 }}>
+                      {campus.name}
+                    </h3>
+                    <p
+                      className="row"
+                      style={{ marginTop: 6, color: 'var(--ink-3)', fontSize: '0.75rem', gap: 6 }}
+                    >
+                      <MapPin className="w-3.5 h-3.5" aria-hidden="true" />
+                      {campus.address || 'No address on record'}
+                    </p>
+                    {typeof campus.studentsCount === 'number' && (
+                      <p style={{ marginTop: 10, color: 'var(--ink-2)', fontSize: '0.75rem' }}>
+                        <b style={{ fontWeight: 650 }}>{campus.studentsCount}</b> students enrolled
+                      </p>
+                    )}
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        </>
       )}
+
+      <Modal
+        open={showAdd}
+        onClose={() => setShowAdd(false)}
+        title="Add a campus"
+        description="Give it a name your staff will recognise. You can change the status later if the site closes for works."
+        onSubmit={handleSubmit}
+        footer={
+          <>
+            <button type="button" className="btn btn-ghost" onClick={() => setShowAdd(false)}>
+              Cancel
+            </button>
+            <button type="submit" className="btn btn-primary" disabled={saving}>
+              {saving ? 'Saving…' : 'Add campus'}
+            </button>
+          </>
+        }
+      >
+        <div className="form-grid">
+          <label className="field">
+            <span className="label">Campus name</span>
+            <input
+              required
+              type="text"
+              className="input"
+              placeholder="e.g. Riverside Campus"
+              value={formData.name}
+              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+            />
+          </label>
+          <label className="field">
+            <span className="label">Location / address</span>
+            <input
+              required
+              type="text"
+              className="input"
+              placeholder="e.g. 14 Canal Road, Lahore"
+              value={formData.location}
+              onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+            />
+          </label>
+          <label className="field">
+            <span className="label">Status</span>
+            <select
+              className="select"
+              value={formData.status}
+              onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+            >
+              <option value="Active">Active</option>
+              <option value="Maintenance">Maintenance</option>
+            </select>
+            <span className="field-hint">
+              Campuses under maintenance stay visible but are flagged everywhere they appear.
+            </span>
+          </label>
+        </div>
+      </Modal>
     </div>
   );
 }

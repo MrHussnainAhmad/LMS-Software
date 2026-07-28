@@ -1,9 +1,14 @@
-import React, { useEffect, useState } from 'react';
-import { ArrowUpCircle, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { ArrowUpCircle, AlertTriangle, CheckCircle2, Layers } from 'lucide-react';
 import { api } from '../utils/api';
 import PageSkeleton from '../components/PageSkeleton';
+import { EmptyState, ErrorNote, PageHead } from '../ui/Bits';
+import { useConfirm, useToast } from '../ui/Feedback';
 
 export default function AutoPromotion() {
+  const toast = useToast();
+  const confirm = useConfirm();
+
   const [batches, setBatches] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -17,7 +22,8 @@ export default function AutoPromotion() {
   async function fetchBatches() {
     try {
       const data = await api.get('/institution/students/auto-promote');
-      setBatches(data.batches || []);
+      // Accept either shape the endpoint has used for the promotable list.
+      setBatches(data.batches || data.classes || []);
     } catch (err: any) {
       setError(err.message || 'Failed to fetch promotion batches');
     } finally {
@@ -25,14 +31,22 @@ export default function AutoPromotion() {
     }
   }
 
-  async function handlePromote(batchId: number) {
-    if (!window.confirm("Are you sure? This action is irreversible.")) return;
+  async function handlePromote(batchId: number, title?: string) {
+    const ok = await confirm({
+      title: 'Run promotion now?',
+      body: `Every active student in ${title || 'this batch'} moves up a grade. This cannot be undone — make sure the final results are published first.`,
+      confirmLabel: 'Yes, promote students',
+      tone: 'danger',
+    });
+    if (!ok) return;
+
     setPromoting(batchId);
     setError('');
     setSuccess('');
     try {
       await api.post('/institution/students/auto-promote', { batchExamId: batchId });
       setSuccess('Auto-promotion executed successfully!');
+      toast.success('Students promoted', `${title || 'The batch'} has moved to the next session.`);
       fetchBatches();
     } catch (err: any) {
       setError(err.message || 'Failed to execute auto-promotion');
@@ -42,71 +56,99 @@ export default function AutoPromotion() {
   }
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-500">
-      <div className="flex flex-col gap-1">
-        <h1 className="text-3xl font-bold text-white tracking-tight">Auto Promotion</h1>
-        <p className="text-slate-400">Promote students to the next academic session automatically.</p>
-      </div>
+    <div className="page">
+      <PageHead
+        title="Auto promotion"
+        subtitle="Move a whole batch into the next academic session once its results are final."
+      />
 
-      <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-6 shadow-xl flex items-start gap-4">
-        <AlertTriangle className="w-6 h-6 text-amber-500 flex-shrink-0" />
+      <div className="alert alert-warn">
+        <AlertTriangle aria-hidden="true" />
         <div>
-          <h3 className="text-lg font-semibold text-amber-500">Warning: Irreversible Action</h3>
-          <p className="text-amber-500/80 text-sm mt-1">
-            Running auto-promotion will move all active students to the next grade based on your institution's configuration. Ensure that all final results are published before running this action.
-          </p>
+          <b>This cannot be undone.</b> Promotion moves every active student in the batch to the next
+          grade using your institution&rsquo;s configuration. Publish all final results before you run it —
+          there is no rollback.
         </div>
       </div>
 
-      {error && (
-        <div className="bg-red-500/10 border border-red-500/50 text-red-500 p-4 rounded-xl">
-          {error}
-        </div>
-      )}
+      {error && <ErrorNote message={error} />}
 
       {success && (
-        <div className="bg-emerald-500/10 border border-emerald-500/50 text-emerald-400 p-4 rounded-xl flex items-center gap-2">
-          <CheckCircle2 className="w-5 h-5" />
-          {success}
+        <div className="alert" style={{ background: 'var(--ok-soft)', borderColor: 'var(--ok)', color: 'var(--ok)' }}>
+          <CheckCircle2 aria-hidden="true" />
+          <div>{success}</div>
         </div>
       )}
 
       {loading ? (
         <PageSkeleton rows={4} />
       ) : batches.length === 0 ? (
-        <div className="bg-slate-800/50 border border-slate-700/50 rounded-2xl p-12 text-center shadow-xl">
-          <ArrowUpCircle className="w-12 h-12 text-slate-500 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-white">No Promotion Batches Found</h3>
-          <p className="text-slate-400 mt-2">There are no PROMOTION type batch exams available to execute.</p>
+        <div className="card">
+          <EmptyState
+            icon={<ArrowUpCircle />}
+            title="Nothing ready to promote"
+            text="Promotion runs off PROMOTION-type batch exams. Create one under Exams and publish its subjects, and it will appear here."
+          />
         </div>
       ) : (
-        <div className="space-y-4">
-          {batches.map((batch) => (
-            <div key={batch.id} className="bg-slate-800/50 backdrop-blur-xl border border-slate-700/50 rounded-2xl shadow-xl overflow-hidden p-6 flex justify-between items-center">
-              <div>
-                <h3 className="text-xl font-bold text-white">{batch.title}</h3>
-                <p className="text-slate-400 mt-1">Class: {batch.className} {batch.sectionName ? `(${batch.sectionName})` : ''}</p>
-                <div className="mt-2 text-sm text-slate-500">
-                  Subjects: {batch.subjectCount} {batch.allSubjectsPublished ? '(All Published)' : '(Not all published)'}
+        <div className="stack">
+          <p className="section-rule">
+            {batches.length} {batches.length === 1 ? 'batch' : 'batches'}
+          </p>
+          {batches.map((batch) => {
+            const ready = Boolean(batch.allSubjectsPublished);
+            const done = Boolean(batch.officialPublishedAt);
+            const busy = promoting === batch.id;
+
+            return (
+              <article className="card" key={batch.id}>
+                <div className="card-pad">
+                  <div className="row-between" style={{ alignItems: 'flex-start', gap: 18 }}>
+                    <div className="stack" style={{ gap: 6, minWidth: 0 }}>
+                      <div className="row">
+                        <span className="initials initials-accent" aria-hidden="true">
+                          <Layers className="w-4 h-4" />
+                        </span>
+                        <h3 style={{ fontSize: '0.9375rem', fontWeight: 650 }}>{batch.title}</h3>
+                      </div>
+                      <p style={{ color: 'var(--ink-2)', fontSize: '0.8125rem' }}>
+                        {batch.className}
+                        {batch.sectionName ? ` · Section ${batch.sectionName}` : ''}
+                      </p>
+                      <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+                        <span className="chip chip-mute">
+                          {batch.subjectCount} {batch.subjectCount === 1 ? 'subject' : 'subjects'}
+                        </span>
+                        <span className={`chip ${ready ? 'chip-ok' : 'chip-warn'}`}>
+                          {ready ? 'All results published' : 'Results still pending'}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div style={{ flexShrink: 0 }}>
+                      {done ? (
+                        <span className="chip chip-ok">
+                          <CheckCircle2 aria-hidden="true" />
+                          Already promoted
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handlePromote(batch.id, batch.title)}
+                          disabled={busy || !ready}
+                          className="btn btn-accent"
+                          title={ready ? undefined : 'Publish every subject result before promoting'}
+                        >
+                          <ArrowUpCircle />
+                          {busy ? 'Promoting…' : 'Run promotion'}
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 </div>
-              </div>
-              <div>
-                {batch.officialPublishedAt ? (
-                  <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-4 py-2 rounded-xl font-medium">
-                    Already Promoted
-                  </span>
-                ) : (
-                  <button 
-                    onClick={() => handlePromote(batch.id)}
-                    disabled={promoting === batch.id || !batch.allSubjectsPublished}
-                    className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-700 text-white px-6 py-2 rounded-xl font-medium shadow-lg transition-all flex items-center gap-2"
-                  >
-                    {promoting === batch.id ? 'Executing promotion…' : 'Execute Promotion'}
-                  </button>
-                )}
-              </div>
-            </div>
-          ))}
+              </article>
+            );
+          })}
         </div>
       )}
     </div>

@@ -1,9 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
-import { createPortal } from 'react-dom';
 import { api, BASE_URL, getAuthToken } from '../utils/api';
-import { Search, Plus, Eye, GraduationCap, X, Upload, Download } from 'lucide-react';
+import { Search, Plus, Eye, GraduationCap, Upload, Download, FileSpreadsheet } from 'lucide-react';
 import PageSkeleton from '../components/PageSkeleton';
+import Modal from '../ui/Modal';
+import { EmptyState, ErrorNote, PageHead } from '../ui/Bits';
+import { useToast } from '../ui/Feedback';
 
 function currentMonthValue() {
   const now = new Date();
@@ -22,15 +24,27 @@ function normalizeImageUrl(value?: string | null) {
   return `https://nisaab360.app/${value}`;
 }
 
+function initialsOf(name: string) {
+  return (name || '?')
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0] || '')
+    .join('')
+    .toUpperCase();
+}
+
 export default function Students() {
   const { selectedCampus } = useOutletContext<any>();
+  const toast = useToast();
+
   const [students, setStudents] = useState<any[]>([]);
   const [campuses, setCampuses] = useState<{ id: number; name: string }[]>([]);
   const [classes, setClasses] = useState<{ id: number; name: string }[]>([]);
   const [sections, setSections] = useState<{ id: number; name: string; classId: number }[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  
+
   const [showAdd, setShowAdd] = useState(false);
   const [showProfile, setShowProfile] = useState<any>(null);
   const [loadingProfile, setLoadingProfile] = useState(false);
@@ -61,6 +75,7 @@ export default function Students() {
   const [importError, setImportError] = useState('');
   const [filterClassId, setFilterClassId] = useState('');
   const [filterSectionId, setFilterSectionId] = useState('');
+  const [query, setQuery] = useState('');
 
   async function handleEnroll(e: React.FormEvent) {
     e.preventDefault();
@@ -75,12 +90,13 @@ export default function Students() {
         age: parseInt(formData.age as any)
       };
       await api.post('/institution/students', payload);
+      const enrolled = `${formData.firstName} ${formData.lastName}`.trim();
       setShowAdd(false);
       const data = await api.get('/institution/students/picker');
       setStudents(data.students || []);
-      alert('Student Enrolled Successfully!');
+      toast.success('Student enrolled', `${enrolled || 'The student'} is now on the register.`);
     } catch(err: any) {
-      alert(err.message || 'Failed to enroll');
+      toast.error('Could not enroll', err.message || 'Failed to enroll');
     } finally {
       setSaving(false);
     }
@@ -131,7 +147,10 @@ export default function Students() {
 
       setShowImport(false);
       setImportFile(null);
-      alert(`${payload?.imported || 0} students imported successfully.`);
+      toast.success(
+        'Import finished',
+        `${payload?.imported || 0} ${payload?.imported === 1 ? 'student' : 'students'} added to the register.`,
+      );
     } catch (err: any) {
       setImportError(err.message || 'Failed to import students.');
     } finally {
@@ -194,8 +213,29 @@ export default function Students() {
       const matchesSectionName = Boolean(sectionObj?.name) && String(student.sectionName || '') === String(sectionObj?.name);
       if (!matchesSectionId && !matchesSectionName) return false;
     }
+    const term = query.trim().toLowerCase();
+    if (term) {
+      const haystack = [
+        student.name,
+        student.loginRollNumber,
+        student.classRollNumber,
+        student.className,
+        student.sectionName,
+      ]
+        .map((value) => String(value || '').toLowerCase())
+        .join(' ');
+      if (!haystack.includes(term)) return false;
+    }
     return true;
   });
+
+  const filtering = Boolean(filterClassId || filterSectionId || query.trim());
+
+  function clearFilters() {
+    setFilterClassId('');
+    setFilterSectionId('');
+    setQuery('');
+  }
 
   async function openProfile(student: any) {
     setShowProfile(null);
@@ -255,423 +295,569 @@ export default function Students() {
   const profileFields = useMemo(() => {
     if (!showProfile) return [];
     return [
-      { label: 'Class', value: `${showProfile.className || 'N/A'}${showProfile.sectionName ? ` - ${showProfile.sectionName}` : ''}` },
+      { label: 'Class', value: `${showProfile.className || 'N/A'}${showProfile.sectionName ? ` · ${showProfile.sectionName}` : ''}` },
       { label: 'Campus', value: showProfile.campusName || 'N/A' },
-      { label: 'Class Roll No.', value: showProfile.classRollNumber || 'N/A' },
+      { label: 'Class roll no.', value: showProfile.classRollNumber || 'N/A' },
       { label: 'Universal ID', value: formatUniversalId(showProfile.loginRollNumber) },
-      { label: 'Father Name', value: showProfile.fatherName || 'N/A' },
+      { label: 'Father name', value: showProfile.fatherName || 'N/A' },
       { label: 'Gender', value: showProfile.gender || 'N/A' },
-      { label: 'Year of Joining', value: showProfile.yearOfJoining || 'N/A' },
+      { label: 'Year of joining', value: showProfile.yearOfJoining || 'N/A' },
       { label: 'Age', value: showProfile.age ?? 'N/A' },
       { label: 'Phone', value: showProfile.phone || 'N/A' },
-      { label: 'Emergency Contact', value: showProfile.emergencyContact || 'N/A' },
-      { label: 'Parental Whatsapp', value: showProfile.parentalWhatsapp || 'N/A' },
+      { label: 'Emergency contact', value: showProfile.emergencyContact || 'N/A' },
+      { label: 'Parental WhatsApp', value: showProfile.parentalWhatsapp || 'N/A' },
     ];
   }, [showProfile]);
 
+  const scopeLabel =
+    selectedCampus?.id && selectedCampus.id !== 'all' ? selectedCampus.name : 'every campus';
+
   return (
-    <div className="space-y-8 animate-in fade-in duration-500">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold text-white tracking-tight">Student Records</h1>
-          <p className="text-slate-400 mt-1">Manage and view student information.</p>
-        </div>
-        <div className="flex gap-3">
-          <div className="student-toolbar-filters">
-            <select
-              aria-label="Filter by class"
-              value={filterClassId}
-              onChange={(e) => {
-                setFilterClassId(e.target.value);
-                setFilterSectionId('');
-              }}
-            >
-              <option value="">All Classes</option>
-              {classes.map((classRow) => (
-                <option key={classRow.id} value={classRow.id}>{classRow.name}</option>
-              ))}
-            </select>
-            <select
-              aria-label="Filter by section"
-              value={filterSectionId}
-              onChange={(e) => setFilterSectionId(e.target.value)}
-              disabled={!filterClassId}
-            >
-              <option value="">All Sections</option>
-              {sectionsForFilter.map((section) => (
-                <option key={section.id} value={section.id}>{section.name}</option>
-              ))}
-            </select>
-          </div>
-          <div className="relative">
-            <Search className="w-5 h-5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input 
-              type="text" 
-              placeholder="Search by name or ID..." 
-              className="student-search bg-slate-800/50 border border-slate-700/50 text-slate-200 text-sm rounded-xl pl-10 pr-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 w-48"
-            />
-          </div>
-          <button onClick={() => setShowAdd(true)} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl font-medium shadow-lg shadow-indigo-500/20 transition-all flex items-center gap-2">
-            <Plus className="w-5 h-5" />
-            Enroll Student
-          </button>
-          <button onClick={() => { setShowImport(true); setImportError(''); }} className="bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-xl font-medium transition-all flex items-center gap-2">
-            <Upload className="w-5 h-5" />
-            Import CSV
-          </button>
-        </div>
-      </div>
+    <div className="page">
+      <PageHead
+        title="Students"
+        subtitle={`The register for ${scopeLabel}. Open a student to see their attendance, marks and promotion history.`}
+      >
+        <label className="search-field">
+          <Search aria-hidden="true" />
+          <input
+            type="search"
+            className="input"
+            placeholder="Name or ID…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            aria-label="Search students"
+          />
+        </label>
+        <button type="button" className="btn btn-quiet" onClick={() => { setShowImport(true); setImportError(''); }}>
+          <Upload />
+          Import CSV
+        </button>
+        <button type="button" className="btn btn-primary" onClick={() => setShowAdd(true)}>
+          <Plus />
+          Enroll student
+        </button>
+      </PageHead>
 
-      {error && (
-        <div className="bg-red-500/10 border border-red-500/50 text-red-500 p-4 rounded-xl">
-          {error}
-        </div>
-      )}
-
-      {showAdd && (
-        <div className="bg-slate-800/50 backdrop-blur-xl border border-slate-700/50 rounded-2xl p-6 shadow-xl mb-6">
-          <h2 className="text-xl font-bold text-white mb-4">Enroll New Student</h2>
-          <form onSubmit={handleEnroll} className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-slate-400 mb-1">First Name</label>
-              <input required type="text" className="w-full bg-slate-900/50 border border-slate-700/50 rounded-xl px-4 py-2 text-white" value={formData.firstName} onChange={e => setFormData({...formData, firstName: e.target.value})} />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-400 mb-1">Last Name</label>
-              <input required type="text" className="w-full bg-slate-900/50 border border-slate-700/50 rounded-xl px-4 py-2 text-white" value={formData.lastName} onChange={e => setFormData({...formData, lastName: e.target.value})} />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-400 mb-1">Gender</label>
-              <select className="w-full bg-slate-900/50 border border-slate-700/50 rounded-xl px-4 py-2 text-white" value={formData.gender} onChange={e => setFormData({...formData, gender: e.target.value})}>
-                <option value="MALE">Male</option>
-                <option value="FEMALE">Female</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-400 mb-1">Age</label>
-              <input required type="number" className="w-full bg-slate-900/50 border border-slate-700/50 rounded-xl px-4 py-2 text-white" value={formData.age} onChange={e => setFormData({...formData, age: parseInt(e.target.value)})} />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-400 mb-1">Campus</label>
-              <select required className="w-full bg-slate-900/50 border border-slate-700/50 rounded-xl px-4 py-2 text-white" value={formData.campusId} onChange={e => setFormData({...formData, campusId: e.target.value})}>
-                <option value="">Select campus...</option>
-                {campuses.map(campus => <option key={campus.id} value={campus.id}>{campus.name}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-400 mb-1">Class</label>
-              <select required className="w-full bg-slate-900/50 border border-slate-700/50 rounded-xl px-4 py-2 text-white" value={formData.classId} onChange={e => setFormData({...formData, classId: e.target.value, sectionId: ''})}>
-                <option value="">Select class...</option>
-                {classes.map(classRow => <option key={classRow.id} value={classRow.id}>{classRow.name}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-400 mb-1">Section</label>
-              <select required className="w-full bg-slate-900/50 border border-slate-700/50 rounded-xl px-4 py-2 text-white" value={formData.sectionId} onChange={e => setFormData({...formData, sectionId: e.target.value})}>
-                <option value="">Select section...</option>
-                {filteredSections.map(section => <option key={section.id} value={section.id}>{section.name}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-400 mb-1">Class Roll Number</label>
-              <input required type="text" className="w-full bg-slate-900/50 border border-slate-700/50 rounded-xl px-4 py-2 text-white" value={formData.classRollNumber} onChange={e => setFormData({...formData, classRollNumber: e.target.value})} />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-400 mb-1">Phone</label>
-              <input type="text" className="w-full bg-slate-900/50 border border-slate-700/50 rounded-xl px-4 py-2 text-white" value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} />
-            </div>
-            <div className="col-span-2 flex justify-end gap-3 mt-4">
-              <button type="button" onClick={() => setShowAdd(false)} className="px-4 py-2 text-slate-400 hover:text-white transition-colors">Cancel</button>
-              <button type="submit" disabled={saving} className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-xl font-medium transition-all">{saving ? 'Enrolling...' : 'Enroll Student'}</button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {showImport && (
-        <div className="bg-slate-800/50 backdrop-blur-xl border border-slate-700/50 rounded-2xl p-6 shadow-xl mb-6">
-          <h2 className="text-xl font-bold text-white mb-2">Import Students from CSV</h2>
-          <p className="text-slate-400 text-sm mb-4">
-            Upload the same CSV format used in the webapp import.
-          </p>
-          <form onSubmit={handleImportStudents} className="space-y-4">
-            <input
-              type="file"
-              accept=".csv,text/csv"
-              onChange={(e) => setImportFile(e.target.files?.[0] || null)}
-              className="block w-full text-sm text-slate-300 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-indigo-500/20 file:text-indigo-200 hover:file:bg-indigo-500/30"
-            />
-            <div className="flex items-center justify-between rounded-xl border border-slate-700/50 bg-slate-900/30 px-3 py-2">
-              <p className="text-xs text-slate-400">Need sample format? Download the same template used on webapp.</p>
-              <button
-                type="button"
-                onClick={handleDownloadTemplate}
-                className="inline-flex items-center gap-2 rounded-lg border border-slate-600 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-700/40"
-              >
-                <Download className="h-3.5 w-3.5" />
-                Download Template CSV
-              </button>
-            </div>
-            {importError && (
-              <div className="rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-300">
-                {importError}
-              </div>
-            )}
-            <div className="flex justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => { setShowImport(false); setImportFile(null); setImportError(''); }}
-                className="px-4 py-2 text-slate-400 hover:text-white transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={importing}
-                className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-xl font-medium transition-all disabled:opacity-60"
-              >
-                {importing ? 'Importing...' : 'Import Students'}
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {showProfile && createPortal(
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-4xl max-h-[90vh] shadow-2xl flex flex-col overflow-hidden">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
-              <h2 className="text-xl font-bold text-slate-900">Student Profile</h2>
-              <button type="button" onClick={() => setShowProfile(null)} className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="px-6 pt-4 border-b border-slate-200">
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => setProfileTab('overview')}
-                  className={`px-4 py-2 rounded-t-lg text-sm font-medium ${profileTab === 'overview' ? 'bg-indigo-50 text-indigo-700 border border-b-white border-indigo-200' : 'text-slate-500 hover:text-slate-800'}`}
-                >
-                  Overview
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setProfileTab('activity')}
-                  className={`px-4 py-2 rounded-t-lg text-sm font-medium ${profileTab === 'activity' ? 'bg-indigo-50 text-indigo-700 border border-b-white border-indigo-200' : 'text-slate-500 hover:text-slate-800'}`}
-                >
-                  Activity
-                </button>
-              </div>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-6">
-              {loadingProfile ? (
-                <div className="py-16 text-center text-slate-500">Loading profile...</div>
-              ) : (
-                <>
-                  {profileError && (
-                    <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                      {profileError}. Showing limited directory data.
-                    </div>
-                  )}
-
-                  {profileTab === 'overview' && (
-                    <div className="space-y-6">
-                      <div className="flex items-center gap-4 pb-4 border-b border-slate-200">
-                        <div className="student-profile-photo w-20 h-20 bg-indigo-100 rounded-full overflow-hidden flex items-center justify-center text-indigo-600 text-3xl font-bold shrink-0">
-                          {normalizeImageUrl(showProfile.profilePictureUrl) ? (
-                            <img src={normalizeImageUrl(showProfile.profilePictureUrl)!} alt={showProfile.name} className="w-full h-full object-cover" />
-                          ) : (
-                            showProfile.name ? showProfile.name.charAt(0) : '?'
-                          )}
-                        </div>
-                        <div>
-                          <h3 className="text-2xl font-bold text-slate-900">{showProfile.name}</h3>
-                          <p className="text-slate-500 font-mono mt-1">{formatUniversalId(showProfile.loginRollNumber)}</p>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {profileFields.map((field) => (
-                          <div key={field.label} className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-                            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{field.label}</p>
-                            <p className="mt-1 text-slate-900">{field.value}</p>
-                          </div>
-                        ))}
-                      </div>
-
-                      {(showProfile.promotionHistory?.length ?? 0) > 0 && (
-                        <div className="rounded-2xl border border-slate-200 overflow-hidden">
-                          <div className="px-4 py-3 bg-slate-50 border-b border-slate-200">
-                            <h4 className="font-semibold text-slate-900">Promotion History</h4>
-                          </div>
-                          <div className="divide-y divide-slate-200">
-                            {showProfile.promotionHistory.map((row: any) => (
-                              <div key={row.id} className="px-4 py-3 text-sm flex flex-wrap items-center justify-between gap-3">
-                                <div className="text-slate-700">
-                                  <strong>{row.fromClassName}</strong>
-                                  <span className="text-slate-500"> · Roll {row.fromRollNumber || '—'} → </span>
-                                  <strong>{row.toClassName}</strong>
-                                  <span className="text-slate-500"> · Roll {row.toRollNumber || '—'}</span>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  <span className="rounded bg-indigo-100 px-2 py-1 text-xs font-semibold text-indigo-800">{row.status}</span>
-                                  <span className="text-xs text-slate-500">{row.createdAt ? new Date(row.createdAt).toLocaleDateString() : ''}</span>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {profileTab === 'activity' && (
-                    <div className="space-y-6">
-                      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-                        <div>
-                          <h4 className="font-semibold text-slate-900">Student activity</h4>
-                          <p className="text-sm text-slate-500">Attendance, results, and term results for the selected month.</p>
-                        </div>
-                        <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
-                          Month
-                          <input
-                            type="month"
-                            value={activityMonth}
-                            max={currentMonthValue()}
-                            onChange={(e) => setActivityMonth(e.target.value)}
-                            className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm"
-                          />
-                        </label>
-                      </div>
-
-                      {activityLoading ? (
-                        <div className="py-10 text-center text-slate-500">Loading activity...</div>
-                      ) : activityError ? (
-                        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{activityError}</div>
-                      ) : (
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                          <div className="rounded-2xl border border-slate-200 overflow-hidden">
-                            <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 font-semibold text-slate-900">Recent Attendance</div>
-                            <div className="p-4 space-y-2 max-h-72 overflow-y-auto">
-                              {attendanceRows.length === 0 ? (
-                                <p className="text-sm text-slate-500">No attendance records this month.</p>
-                              ) : attendanceRows.map((row) => (
-                                <div key={row.id} className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 text-sm">
-                                  <span className="text-slate-700">{row.date}</span>
-                                  <span className="font-medium text-slate-900">{row.status}</span>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-
-                          <div className="rounded-2xl border border-slate-200 overflow-hidden">
-                            <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 font-semibold text-slate-900">Recent Results</div>
-                            <div className="p-4 space-y-2 max-h-72 overflow-y-auto">
-                              {marksRows.length === 0 ? (
-                                <p className="text-sm text-slate-500">No test results this month.</p>
-                              ) : marksRows.map((row) => (
-                                <div key={row.id} className="rounded-lg border border-slate-200 px-3 py-2 text-sm">
-                                  <div className="font-medium text-slate-900">{row.testTitle}</div>
-                                  <div className="mt-1 flex items-center justify-between text-slate-600">
-                                    <span>{row.date}</span>
-                                    <span>{row.marksObtained}/{row.totalMarks}</span>
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-
-                          <div className="rounded-2xl border border-slate-200 overflow-hidden lg:col-span-2">
-                            <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 font-semibold text-slate-900">Term Results</div>
-                            <div className="p-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-                              {batchExamRows.length === 0 ? (
-                                <p className="text-sm text-slate-500">No published term results this month.</p>
-                              ) : batchExamRows.map((exam) => (
-                                <div key={exam.id} className="rounded-xl border border-slate-200 p-4">
-                                  <div className="font-semibold text-slate-900">{exam.title}</div>
-                                  <div className="text-xs text-slate-500 mt-1">{exam.createdAt ? new Date(exam.createdAt).toLocaleDateString() : ''}</div>
-                                  <div className="mt-3 flex items-center justify-between text-sm">
-                                    <span>{exam.totalObtained}/{exam.totalMax}</span>
-                                    <span className={`font-bold ${exam.percentage >= 50 ? 'text-emerald-600' : 'text-red-600'}`}>{exam.percentage}%</span>
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-
-            <div className="px-6 py-4 border-t border-slate-200 flex justify-end">
-              <button type="button" onClick={() => setShowProfile(null)} className="bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded-xl">Close</button>
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
+      {error && <ErrorNote message={error} />}
 
       {loading ? (
         <PageSkeleton rows={7} />
-      ) : filteredStudents.length === 0 ? (
-        <div className="bg-slate-800/50 border border-slate-700/50 rounded-2xl p-12 text-center">
-          <GraduationCap className="w-12 h-12 text-slate-500 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-white">No Students Found</h3>
-          <p className="text-slate-400 mt-2">No student matches selected class/section filters.</p>
-        </div>
       ) : (
-        <div className="bg-slate-800/50 backdrop-blur-xl border border-slate-700/50 rounded-2xl shadow-xl overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-slate-700/50 bg-slate-800/30">
-                  <th className="p-4 text-sm font-semibold text-slate-300">Student ID</th>
-                  <th className="p-4 text-sm font-semibold text-slate-300">Name</th>
-                  <th className="p-4 text-sm font-semibold text-slate-300">Class</th>
-                  <th className="p-4 text-sm font-semibold text-slate-300">Section</th>
-                  <th className="p-4 text-sm font-semibold text-slate-300">Status</th>
-                  <th className="p-4 text-sm font-semibold text-slate-300 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-700/50">
-                {filteredStudents.map(student => (
-                  <tr key={student.id} className="hover:bg-slate-700/20 transition-colors group">
-                    <td className="p-4 text-slate-400 text-sm font-mono">{formatUniversalId(student.loginRollNumber) || student.id}</td>
-                    <td className="p-4">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-400 to-sky-400 flex items-center justify-center text-white font-bold text-xs shadow-sm">
-                          {student.name ? student.name.split(' ').map((n: string) => n[0]).join('') : '?'}
-                        </div>
-                        <span className="font-medium text-slate-200">{student.name}</span>
-                      </div>
-                    </td>
-                    <td className="p-4 text-slate-400 text-sm">{student.className || 'N/A'}</td>
-                    <td className="p-4 text-slate-400 text-sm">{student.sectionName || 'Main'}</td>
-                    <td className="p-4">
-                      <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-semibold ${
-                        (student.status || 'Enrolled') === 'Enrolled' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'
-                      }`}>
-                        {student.status || 'Enrolled'}
-                      </span>
-                    </td>
-                    <td className="p-4 text-right">
-                      <button type="button" onClick={() => openProfile(student)} className="text-slate-400 hover:text-indigo-400 p-1.5 rounded-lg hover:bg-indigo-500/10 transition-colors">
-                        <Eye className="w-5 h-5" />
-                      </button>
-                    </td>
-                  </tr>
+        <section className="card">
+          <div className="card-head">
+            <div className="card-head-copy">
+              <h2 className="card-title">Register</h2>
+              <p className="card-sub">
+                {filtering
+                  ? `${filteredStudents.length} of ${students.length} shown`
+                  : `${students.length} ${students.length === 1 ? 'student' : 'students'}`}
+              </p>
+            </div>
+            <div className="card-tools">
+              <select
+                className="select input-sm"
+                aria-label="Filter by class"
+                value={filterClassId}
+                onChange={(e) => {
+                  setFilterClassId(e.target.value);
+                  setFilterSectionId('');
+                }}
+              >
+                <option value="">All classes</option>
+                {classes.map((classRow) => (
+                  <option key={classRow.id} value={classRow.id}>{classRow.name}</option>
                 ))}
-              </tbody>
-            </table>
+              </select>
+              <select
+                className="select input-sm"
+                aria-label="Filter by section"
+                value={filterSectionId}
+                onChange={(e) => setFilterSectionId(e.target.value)}
+                disabled={!filterClassId}
+              >
+                <option value="">All sections</option>
+                {sectionsForFilter.map((section) => (
+                  <option key={section.id} value={section.id}>{section.name}</option>
+                ))}
+              </select>
+              {filtering && (
+                <button type="button" className="btn btn-ghost btn-sm" onClick={clearFilters}>
+                  Clear
+                </button>
+              )}
+            </div>
           </div>
-        </div>
+
+          {students.length === 0 ? (
+            <EmptyState
+              icon={<GraduationCap />}
+              title="No students enrolled yet"
+              text="Enroll them one at a time, or bring a whole class over with a CSV import."
+              action={
+                <>
+                  <button type="button" className="btn btn-primary" onClick={() => setShowAdd(true)}>
+                    <Plus />
+                    Enroll a student
+                  </button>
+                  <button type="button" className="btn btn-quiet" onClick={() => { setShowImport(true); setImportError(''); }}>
+                    <Upload />
+                    Import CSV
+                  </button>
+                </>
+              }
+            />
+          ) : filteredStudents.length === 0 ? (
+            <EmptyState
+              icon={<Search />}
+              title="No student matches these filters"
+              text="Loosen the class or section filter, or clear the search box."
+              action={
+                <button type="button" className="btn btn-quiet" onClick={clearFilters}>
+                  Clear filters
+                </button>
+              }
+            />
+          ) : (
+            <div className="table-wrap">
+              <table className="tbl">
+                <thead>
+                  <tr>
+                    <th scope="col">Student ID</th>
+                    <th scope="col">Name</th>
+                    <th scope="col">Class</th>
+                    <th scope="col">Section</th>
+                    <th scope="col">Status</th>
+                    <th scope="col" style={{ textAlign: 'right' }}>Profile</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredStudents.map(student => {
+                    const enrolled = (student.status || 'Enrolled') === 'Enrolled';
+                    return (
+                      <tr key={student.id}>
+                        <td className="mono" style={{ color: 'var(--ink-3)' }}>
+                          {formatUniversalId(student.loginRollNumber) || student.id}
+                        </td>
+                        <td>
+                          <div className="row">
+                            <span className="initials" aria-hidden="true">{initialsOf(student.name)}</span>
+                            <b className="tbl-strong">{student.name}</b>
+                          </div>
+                        </td>
+                        <td>{student.className || 'N/A'}</td>
+                        <td>{student.sectionName || 'Main'}</td>
+                        <td>
+                          <span className={`chip ${enrolled ? 'chip-ok' : 'chip-bad'}`}>
+                            {student.status || 'Enrolled'}
+                          </span>
+                        </td>
+                        <td>
+                          <div className="tbl-actions">
+                            <button
+                              type="button"
+                              onClick={() => openProfile(student)}
+                              className="icon-btn"
+                              aria-label={`Open ${student.name}'s profile`}
+                              title="Open profile"
+                            >
+                              <Eye />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
       )}
+
+      {/* Enroll ------------------------------------------------------------ */}
+      <Modal
+        open={showAdd}
+        onClose={() => setShowAdd(false)}
+        title="Enroll a student"
+        description="Their login ID is generated from the class and roll number once they're saved."
+        size="md"
+        onSubmit={handleEnroll}
+        footer={
+          <>
+            <button type="button" className="btn btn-ghost" onClick={() => setShowAdd(false)}>
+              Cancel
+            </button>
+            <button type="submit" className="btn btn-primary" disabled={saving}>
+              {saving ? 'Enrolling…' : 'Enroll student'}
+            </button>
+          </>
+        }
+      >
+        <div className="form-grid form-grid-2">
+          <label className="field">
+            <span className="label">First name</span>
+            <input required type="text" className="input" value={formData.firstName} onChange={e => setFormData({...formData, firstName: e.target.value})} />
+          </label>
+          <label className="field">
+            <span className="label">Last name</span>
+            <input required type="text" className="input" value={formData.lastName} onChange={e => setFormData({...formData, lastName: e.target.value})} />
+          </label>
+          <label className="field">
+            <span className="label">Gender</span>
+            <select className="select" value={formData.gender} onChange={e => setFormData({...formData, gender: e.target.value})}>
+              <option value="MALE">Male</option>
+              <option value="FEMALE">Female</option>
+            </select>
+          </label>
+          <label className="field">
+            <span className="label">Age</span>
+            <input required type="number" min={3} max={30} className="input" value={formData.age} onChange={e => setFormData({...formData, age: parseInt(e.target.value)})} />
+          </label>
+          <label className="field">
+            <span className="label">Campus</span>
+            <select required className="select" value={formData.campusId} onChange={e => setFormData({...formData, campusId: e.target.value})}>
+              <option value="">Select campus…</option>
+              {campuses.map(campus => <option key={campus.id} value={campus.id}>{campus.name}</option>)}
+            </select>
+          </label>
+          <label className="field">
+            <span className="label">Class</span>
+            <select required className="select" value={formData.classId} onChange={e => setFormData({...formData, classId: e.target.value, sectionId: ''})}>
+              <option value="">Select class…</option>
+              {classes.map(classRow => <option key={classRow.id} value={classRow.id}>{classRow.name}</option>)}
+            </select>
+          </label>
+          <label className="field">
+            <span className="label">Section</span>
+            <select required className="select" value={formData.sectionId} onChange={e => setFormData({...formData, sectionId: e.target.value})} disabled={!formData.classId}>
+              <option value="">{formData.classId ? 'Select section…' : 'Pick a class first'}</option>
+              {filteredSections.map(section => <option key={section.id} value={section.id}>{section.name}</option>)}
+            </select>
+          </label>
+          <label className="field">
+            <span className="label">Class roll number</span>
+            <input required type="text" className="input" placeholder="e.g. 014" value={formData.classRollNumber} onChange={e => setFormData({...formData, classRollNumber: e.target.value})} />
+          </label>
+          <label className="field form-span-2">
+            <span className="label">Phone <span style={{ color: 'var(--ink-4)', fontWeight: 500 }}>· optional</span></span>
+            <input type="text" className="input" placeholder="03xx xxxxxxx" value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} />
+          </label>
+        </div>
+      </Modal>
+
+      {/* Import ------------------------------------------------------------ */}
+      <Modal
+        open={showImport}
+        onClose={() => { setShowImport(false); setImportFile(null); setImportError(''); }}
+        title="Import students from CSV"
+        description="Same format as the web app. One row per student — sections may be left blank."
+        size="sm"
+        onSubmit={handleImportStudents}
+        footer={
+          <>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={() => { setShowImport(false); setImportFile(null); setImportError(''); }}
+            >
+              Cancel
+            </button>
+            <button type="submit" className="btn btn-primary" disabled={importing}>
+              {importing ? 'Importing…' : 'Import students'}
+            </button>
+          </>
+        }
+      >
+        <div className="stack" style={{ gap: 12 }}>
+          <label className="field">
+            <span className="label">CSV file</span>
+            <input
+              type="file"
+              accept=".csv,text/csv"
+              className="input"
+              onChange={(e) => setImportFile(e.target.files?.[0] || null)}
+            />
+            {importFile && (
+              <span className="field-hint">
+                <FileSpreadsheet className="w-3 h-3" aria-hidden="true" /> {importFile.name}
+              </span>
+            )}
+          </label>
+
+          <div className="row-between" style={{ gap: 12 }}>
+            <p style={{ color: 'var(--ink-3)', fontSize: '0.75rem', maxWidth: '34ch' }}>
+              Not sure about the columns? Start from the template and fill it in.
+            </p>
+            <button type="button" className="btn btn-quiet btn-sm" onClick={handleDownloadTemplate}>
+              <Download />
+              Template
+            </button>
+          </div>
+
+          {importError && (
+            <div className="alert alert-bad">
+              <div>{importError}</div>
+            </div>
+          )}
+        </div>
+      </Modal>
+
+      {/* Profile ----------------------------------------------------------- */}
+      <Modal
+        open={Boolean(showProfile)}
+        onClose={() => setShowProfile(null)}
+        title={showProfile?.name || 'Student profile'}
+        description={showProfile ? formatUniversalId(showProfile.loginRollNumber) : undefined}
+        size="lg"
+        scrollBody
+        footer={
+          <button type="button" className="btn btn-primary" onClick={() => setShowProfile(null)}>
+            Close
+          </button>
+        }
+      >
+        {showProfile && (
+          <div className="stack" style={{ gap: 16 }}>
+            <div className="seg" role="group" aria-label="Profile sections">
+              <button type="button" aria-pressed={profileTab === 'overview'} onClick={() => setProfileTab('overview')}>
+                Overview
+              </button>
+              <button type="button" aria-pressed={profileTab === 'activity'} onClick={() => setProfileTab('activity')}>
+                Activity
+              </button>
+            </div>
+
+            {loadingProfile ? (
+              <div className="sk-panel">
+                <div className="sk-line is-head" />
+                <div className="sk-line" />
+                <div className="sk-line" />
+              </div>
+            ) : (
+              <>
+                {profileError && (
+                  <div className="alert alert-warn">
+                    <div>{profileError}. Showing limited directory data.</div>
+                  </div>
+                )}
+
+                {profileTab === 'overview' && (
+                  <div className="stack" style={{ gap: 16 }}>
+                    <div className="row" style={{ gap: 14 }}>
+                      <span
+                        className="initials"
+                        style={{ width: 56, height: 56, fontSize: '1.125rem', overflow: 'hidden' }}
+                        aria-hidden="true"
+                      >
+                        {normalizeImageUrl(showProfile.profilePictureUrl) ? (
+                          <img
+                            src={normalizeImageUrl(showProfile.profilePictureUrl)!}
+                            alt=""
+                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                          />
+                        ) : (
+                          initialsOf(showProfile.name)
+                        )}
+                      </span>
+                      <div className="stack" style={{ gap: 3 }}>
+                        <b style={{ fontSize: '1.0625rem', fontWeight: 650 }}>{showProfile.name}</b>
+                        <span className="mono" style={{ color: 'var(--ink-3)', fontSize: '0.75rem' }}>
+                          {formatUniversalId(showProfile.loginRollNumber)}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="grid-cards" style={{ gap: 10 }}>
+                      {profileFields.map((field) => (
+                        <div key={field.label} className="secret" style={{ display: 'block' }}>
+                          <span className="secret-label" style={{ marginBottom: 4 }}>{field.label}</span>
+                          <span style={{ fontSize: '0.8125rem', color: 'var(--ink)' }}>{field.value}</span>
+                        </div>
+                      ))}
+                    </div>
+
+                    {(showProfile.promotionHistory?.length ?? 0) > 0 && (
+                      <div className="card">
+                        <div className="card-head">
+                          <div className="card-head-copy">
+                            <h3 className="card-title">Promotion history</h3>
+                          </div>
+                        </div>
+                        <div>
+                          {showProfile.promotionHistory.map((row: any) => (
+                            <div className="list-row" key={row.id}>
+                              <span className="cell-stack" style={{ flex: '1 1 auto', minWidth: 0 }}>
+                                <b>
+                                  {row.fromClassName} → {row.toClassName}
+                                </b>
+                                <span>
+                                  Roll {row.fromRollNumber || '—'} → {row.toRollNumber || '—'}
+                                </span>
+                              </span>
+                              <span className="chip chip-brand">{row.status}</span>
+                              <span style={{ color: 'var(--ink-4)', fontSize: '0.75rem' }}>
+                                {row.createdAt ? new Date(row.createdAt).toLocaleDateString() : ''}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {profileTab === 'activity' && (
+                  <div className="stack" style={{ gap: 14 }}>
+                    <div className="row-between" style={{ gap: 12, flexWrap: 'wrap' }}>
+                      <p style={{ color: 'var(--ink-2)', fontSize: '0.8125rem', maxWidth: '46ch' }}>
+                        Attendance, test marks and term results for the month you choose.
+                      </p>
+                      <label className="field" style={{ minWidth: 0 }}>
+                        <input
+                          type="month"
+                          className="input input-sm"
+                          value={activityMonth}
+                          max={currentMonthValue()}
+                          onChange={(e) => setActivityMonth(e.target.value)}
+                          aria-label="Activity month"
+                        />
+                      </label>
+                    </div>
+
+                    {activityLoading ? (
+                      <div className="sk-panel">
+                        <div className="sk-line is-head" />
+                        <div className="sk-line" />
+                        <div className="sk-line" />
+                      </div>
+                    ) : activityError ? (
+                      <ErrorNote message={activityError} />
+                    ) : (
+                      <div className="stack" style={{ gap: 14 }}>
+                        <div className="card">
+                          <div className="card-head">
+                            <div className="card-head-copy">
+                              <h3 className="card-title">Attendance</h3>
+                              <p className="card-sub">{attendanceRows.length} recorded days</p>
+                            </div>
+                          </div>
+                          {attendanceRows.length === 0 ? (
+                            <p className="card-pad" style={{ color: 'var(--ink-3)', fontSize: '0.8125rem' }}>
+                              No attendance recorded this month.
+                            </p>
+                          ) : (
+                            <div className="table-wrap" style={{ maxHeight: 240 }}>
+                              <table className="tbl tbl-tight">
+                                <thead>
+                                  <tr>
+                                    <th scope="col">Date</th>
+                                    <th scope="col">Status</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {attendanceRows.map((row) => (
+                                    <tr key={row.id}>
+                                      <td className="tbl-num">{row.date}</td>
+                                      <td>
+                                        <span
+                                          className={`chip ${
+                                            row.status === 'PRESENT'
+                                              ? 'chip-ok'
+                                              : row.status === 'ABSENT'
+                                                ? 'chip-bad'
+                                                : 'chip-warn'
+                                          }`}
+                                        >
+                                          {row.status}
+                                        </span>
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="card">
+                          <div className="card-head">
+                            <div className="card-head-copy">
+                              <h3 className="card-title">Test results</h3>
+                              <p className="card-sub">{marksRows.length} entries</p>
+                            </div>
+                          </div>
+                          {marksRows.length === 0 ? (
+                            <p className="card-pad" style={{ color: 'var(--ink-3)', fontSize: '0.8125rem' }}>
+                              No test results this month.
+                            </p>
+                          ) : (
+                            <div className="table-wrap" style={{ maxHeight: 240 }}>
+                              <table className="tbl tbl-tight">
+                                <thead>
+                                  <tr>
+                                    <th scope="col">Test</th>
+                                    <th scope="col">Date</th>
+                                    <th scope="col">Score</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {marksRows.map((row) => (
+                                    <tr key={row.id}>
+                                      <td className="tbl-strong">{row.testTitle}</td>
+                                      <td className="tbl-num">{row.date}</td>
+                                      <td className="tbl-num">
+                                        {row.marksObtained}/{row.totalMarks}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="card">
+                          <div className="card-head">
+                            <div className="card-head-copy">
+                              <h3 className="card-title">Term results</h3>
+                              <p className="card-sub">{batchExamRows.length} published</p>
+                            </div>
+                          </div>
+                          {batchExamRows.length === 0 ? (
+                            <p className="card-pad" style={{ color: 'var(--ink-3)', fontSize: '0.8125rem' }}>
+                              No published term results this month.
+                            </p>
+                          ) : (
+                            <div className="card-pad grid-cards" style={{ gap: 10 }}>
+                              {batchExamRows.map((exam) => (
+                                <div key={exam.id} className="secret" style={{ display: 'block' }}>
+                                  <b style={{ fontSize: '0.8125rem', fontWeight: 650 }}>{exam.title}</b>
+                                  <p style={{ color: 'var(--ink-4)', fontSize: '0.6875rem', marginTop: 2 }}>
+                                    {exam.createdAt ? new Date(exam.createdAt).toLocaleDateString() : ''}
+                                  </p>
+                                  <div className="row-between" style={{ marginTop: 8, fontSize: '0.8125rem' }}>
+                                    <span style={{ color: 'var(--ink-2)' }}>
+                                      {exam.totalObtained}/{exam.totalMax}
+                                    </span>
+                                    <b style={{ color: exam.percentage >= 50 ? 'var(--ok)' : 'var(--bad)' }}>
+                                      {exam.percentage}%
+                                    </b>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

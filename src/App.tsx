@@ -21,6 +21,7 @@ import Exams from './views/Exams';
 import Announcements from './views/Announcements';
 import HelpDesk from './views/HelpDesk';
 import Settings from './views/Settings';
+import { FeedbackProvider } from './ui/Feedback';
 
 type UpdateInfo = {
   currentVersion: string;
@@ -92,7 +93,8 @@ export default function App() {
   if (!bootChecked) return null;
 
   return (
-    <HashRouter>
+    <FeedbackProvider>
+      <HashRouter>
       <Routes>
         <Route path="/login" element={isAuthed ? <Navigate to="/dashboard" replace /> : <Login />} />
         
@@ -147,6 +149,7 @@ export default function App() {
           </div>
         </div>
       )}
-    </HashRouter>
+      </HashRouter>
+    </FeedbackProvider>
   );
 }

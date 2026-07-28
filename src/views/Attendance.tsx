@@ -1,12 +1,40 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api } from '../utils/api';
-import { Calendar as CalendarIcon, CheckCircle, AlertCircle, Clock, ClipboardCheck } from 'lucide-react';
+import { CalendarDays, CheckCircle2, AlertCircle, Clock, ClipboardCheck } from 'lucide-react';
 import PageSkeleton from '../components/PageSkeleton';
+import { EmptyState, ErrorNote, PageHead, Stat } from '../ui/Bits';
 
 interface AttendanceRecord {
   staffId: number;
   status: string;
   date: string;
+}
+
+function initialsOf(name: string) {
+  return (name || '?')
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0] || '')
+    .join('')
+    .toUpperCase();
+}
+
+const STATUS_CHIP: Record<string, string> = {
+  PRESENT: 'chip-ok',
+  ABSENT: 'chip-bad',
+  LATE: 'chip-warn',
+};
+
+function prettyStatus(status: string) {
+  if (!status) return 'Unknown';
+  return status.charAt(0) + status.slice(1).toLowerCase();
+}
+
+function humanDate(iso: string) {
+  const parsed = new Date(`${iso}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return iso;
+  return parsed.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
 }
 
 export default function Attendance() {
@@ -42,79 +70,110 @@ export default function Attendance() {
   const totalAbsent = attendanceData.filter((record) => record.status === 'ABSENT').length;
   const totalLate = attendanceData.filter((record) => record.status === 'LATE').length;
 
+  const today = new Date().toISOString().split('T')[0];
+
   return (
-    <div className="space-y-8 animate-in fade-in duration-500">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold text-white tracking-tight">Attendance</h1>
-          <p className="text-slate-400 mt-1">Monitor daily attendance records.</p>
-        </div>
-        <div className="flex gap-3">
-          <input 
-            type="date" 
+    <div className="page">
+      <PageHead
+        title="Staff attendance"
+        subtitle={`${humanDate(dateStr)}${dateStr === today ? ' · today' : ''}. Records appear here as soon as they are marked on any campus.`}
+      >
+        <label className="field" style={{ minWidth: 0 }}>
+          <input
+            type="date"
+            className="input"
             value={dateStr}
+            max={today}
             onChange={(e) => setDateStr(e.target.value)}
-            className="bg-slate-800/50 border border-slate-700/50 text-slate-200 text-sm rounded-xl px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            aria-label="Attendance date"
           />
+        </label>
+        {dateStr !== today && (
+          <button type="button" className="btn btn-quiet" onClick={() => setDateStr(today)}>
+            <CalendarDays />
+            Back to today
+          </button>
+        )}
+      </PageHead>
 
-        </div>
-      </div>
-
-      {error && (
-        <div className="bg-red-500/10 border border-red-500/50 text-red-500 p-4 rounded-xl">
-          {error}
-        </div>
-      )}
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-        <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-6 relative overflow-hidden">
-          <CheckCircle className="w-16 h-16 text-emerald-500/20 absolute -right-2 -bottom-2" />
-          <p className="text-emerald-400 text-sm font-medium mb-1 relative z-10">Overall Present</p>
-          <p className="text-3xl font-bold text-white relative z-10">{totalPresent}</p>
-        </div>
-        <div className="bg-red-500/10 border border-red-500/20 rounded-2xl p-6 relative overflow-hidden">
-          <AlertCircle className="w-16 h-16 text-red-500/20 absolute -right-2 -bottom-2" />
-          <p className="text-red-400 text-sm font-medium mb-1 relative z-10">Overall Absent</p>
-          <p className="text-3xl font-bold text-white relative z-10">{totalAbsent}</p>
-        </div>
-        <div className="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-6 relative overflow-hidden">
-          <Clock className="w-16 h-16 text-amber-500/20 absolute -right-2 -bottom-2" />
-          <p className="text-amber-400 text-sm font-medium mb-1 relative z-10">Overall Late</p>
-          <p className="text-3xl font-bold text-white relative z-10">{totalLate}</p>
-        </div>
-      </div>
+      {error && <ErrorNote message={error} />}
 
       {loading ? (
         <PageSkeleton cards={3} rows={5} />
-      ) : attendanceData.length === 0 ? (
-        <div className="bg-slate-800/50 border border-slate-700/50 rounded-2xl p-12 text-center">
-          <CalendarIcon className="w-12 h-12 text-slate-500 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-white">No Records</h3>
-          <p className="text-slate-400 mt-2">No attendance records found for {dateStr}.</p>
-        </div>
       ) : (
-        <div className="bg-slate-800/50 backdrop-blur-xl border border-slate-700/50 rounded-2xl shadow-xl overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-slate-700/50 bg-slate-800/30">
-                  <th className="p-4 text-sm font-semibold text-slate-300">Staff Member</th>
-                  <th className="p-4 text-sm font-semibold text-slate-300">Date</th>
-                  <th className="p-4 text-sm font-semibold text-slate-300 text-center">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-700/50">
-                {attendanceData.map((record, i) => (
-                  <tr key={i} className="hover:bg-slate-700/20 transition-colors">
-                    <td className="p-4 text-slate-200 font-medium">{staffMap[record.staffId] || `Staff #${record.staffId}`}</td>
-                    <td className="p-4 text-slate-400 text-sm">{record.date || dateStr}</td>
-                    <td className="p-4 text-center text-slate-200 font-medium">{record.status}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <>
+          <section className="metrics">
+            <Stat label="Present" value={totalPresent} icon={<CheckCircle2 />} tone="ok" foot="Marked in on time" />
+            <Stat label="Absent" value={totalAbsent} icon={<AlertCircle />} tone="brand" foot="No attendance recorded" />
+            <Stat label="Late" value={totalLate} icon={<Clock />} tone="accent" foot="Arrived after the bell" />
+          </section>
+
+          <section className="card">
+            <div className="card-head">
+              <div className="card-head-copy">
+                <h2 className="card-title">
+                  <ClipboardCheck aria-hidden="true" />
+                  Register
+                </h2>
+                <p className="card-sub">
+                  {attendanceData.length} {attendanceData.length === 1 ? 'entry' : 'entries'} for {dateStr}
+                </p>
+              </div>
+            </div>
+
+            {attendanceData.length === 0 ? (
+              <EmptyState
+                icon={<CalendarDays />}
+                title="Nothing marked for this day"
+                text={
+                  dateStr === today
+                    ? 'Attendance for today has not been submitted yet. It usually lands shortly after the first period.'
+                    : 'No one recorded attendance on this date. Pick another day to compare.'
+                }
+                action={
+                  dateStr !== today ? (
+                    <button type="button" className="btn btn-quiet" onClick={() => setDateStr(today)}>
+                      Jump to today
+                    </button>
+                  ) : undefined
+                }
+              />
+            ) : (
+              <div className="table-wrap">
+                <table className="tbl">
+                  <thead>
+                    <tr>
+                      <th scope="col">Staff member</th>
+                      <th scope="col">Date</th>
+                      <th scope="col">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {attendanceData.map((record, i) => {
+                      const name = staffMap[record.staffId] || `Staff #${record.staffId}`;
+                      return (
+                        <tr key={i}>
+                          <td>
+                            <div className="row">
+                              <span className="initials" aria-hidden="true">{initialsOf(name)}</span>
+                              <b className="tbl-strong">{name}</b>
+                            </div>
+                          </td>
+                          <td className="tbl-num">{record.date || dateStr}</td>
+                          <td>
+                            <span className={`chip ${STATUS_CHIP[record.status] || 'chip-mute'}`}>
+                              {prettyStatus(record.status)}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        </>
       )}
     </div>
   );

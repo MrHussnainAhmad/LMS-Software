@@ -1,6 +1,24 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { BookOpen, Calendar, Search } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { BookOpen, Search, CalendarDays } from 'lucide-react';
 import { api } from '../utils/api';
+import PageSkeleton from '../components/PageSkeleton';
+import { EmptyState, ErrorNote, PageHead } from '../ui/Bits';
+
+function initialsOf(name: string) {
+  return (name || '?')
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0] || '')
+    .join('')
+    .toUpperCase();
+}
+
+function humanDate(iso: string) {
+  const parsed = new Date(`${iso}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return iso;
+  return parsed.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
+}
 
 export default function DailyDiary() {
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
@@ -58,90 +76,117 @@ export default function DailyDiary() {
     });
   }, [entries, query]);
 
+  const today = new Date().toISOString().split('T')[0];
+  const className = classes.find((c) => String(c.id) === classId)?.name;
+
   return (
-    <div className="space-y-8 animate-in fade-in duration-500">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold text-white tracking-tight">Daily Diary</h1>
-          <p className="text-slate-400 mt-1">View daily diary entries (by class and date).</p>
-        </div>
-
-      </div>
-
-      <div className="flex gap-4">
-        <div className="relative">
-          <Search className="w-5 h-5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-          <input 
-            type="text" 
-            placeholder="Search by subject/staff/content..." 
-            className="bg-slate-800/50 border border-slate-700/50 text-slate-200 text-sm rounded-xl pl-10 pr-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 w-64"
+    <div className="page">
+      <PageHead
+        title="Daily diary"
+        subtitle={`What was taught and set as homework${className ? ` in ${className}` : ''} on ${humanDate(date)}.`}
+      >
+        <label className="search-field">
+          <Search aria-hidden="true" />
+          <input
+            type="search"
+            className="input"
+            placeholder="Subject, teacher, content…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
+            aria-label="Search diary entries"
           />
-        </div>
-        <select
-          className="bg-slate-800/50 border border-slate-700/50 text-slate-200 text-sm rounded-xl px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          value={classId}
-          onChange={(e) => setClassId(e.target.value)}
-          disabled={classes.length === 0}
-        >
-          {classes.length === 0 ? <option value="">Loading classes...</option> : null}
-          {classes.map((c) => (
-            <option key={c.id} value={String(c.id)}>
-              {c.name}
-            </option>
-          ))}
-        </select>
-        <input 
-          type="date"
-          value={date}
-          onChange={(e) => setDate(e.target.value)}
-          className="bg-slate-800/50 border border-slate-700/50 text-slate-200 text-sm rounded-xl px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-        />
-      </div>
+        </label>
+        <label className="field" style={{ minWidth: 0 }}>
+          <select
+            className="select"
+            value={classId}
+            onChange={(e) => setClassId(e.target.value)}
+            disabled={classes.length === 0}
+            aria-label="Class"
+          >
+            {classes.length === 0 ? <option value="">Loading classes…</option> : null}
+            {classes.map((c) => (
+              <option key={c.id} value={String(c.id)}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="field" style={{ minWidth: 0 }}>
+          <input
+            type="date"
+            className="input"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+            aria-label="Diary date"
+          />
+        </label>
+      </PageHead>
 
-      {error && (
-        <div className="bg-red-500/10 border border-red-500/50 text-red-400 p-4 rounded-xl flex items-start gap-3">
-          <Calendar className="w-5 h-5 mt-0.5 text-red-400" />
-          <div className="text-sm">{error}</div>
-        </div>
-      )}
+      {error && <ErrorNote message={error} />}
 
       {loading ? (
-        <div className="bg-slate-800/50 border border-slate-700/50 rounded-2xl p-12 text-center shadow-xl text-slate-300">
-          Loading diary entries...
-        </div>
+        <PageSkeleton rows={5} />
       ) : filteredEntries.length === 0 ? (
-        <div className="bg-slate-800/50 border border-slate-700/50 rounded-2xl p-12 text-center shadow-xl">
-          <BookOpen className="w-12 h-12 text-slate-500 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-white">No Diaries Found</h3>
-          <p className="text-slate-400 mt-2">
-            There are no diary entries for this class on {date}.
-          </p>
+        <div className="card">
+          <EmptyState
+            icon={<BookOpen />}
+            title={query.trim() ? 'Nothing matches that search' : 'No diary entries for this day'}
+            text={
+              query.trim()
+                ? 'Try a different subject or teacher, or clear the search.'
+                : 'Teachers write the diary at the end of each lesson. Check another date, or another class.'
+            }
+            action={
+              query.trim() ? (
+                <button type="button" className="btn btn-quiet" onClick={() => setQuery('')}>
+                  Clear search
+                </button>
+              ) : date !== today ? (
+                <button type="button" className="btn btn-quiet" onClick={() => setDate(today)}>
+                  <CalendarDays />
+                  Jump to today
+                </button>
+              ) : undefined
+            }
+          />
         </div>
       ) : (
-        <div className="bg-slate-800/50 backdrop-blur-xl border border-slate-700/50 rounded-2xl shadow-xl overflow-hidden">
-          <div className="border-b border-slate-700/50 p-4 bg-slate-800/30">
-            <h2 className="text-lg font-bold text-white">
-              Diary Entries • {date}
-            </h2>
+        <section className="card">
+          <div className="card-head">
+            <div className="card-head-copy">
+              <h2 className="card-title">
+                <BookOpen aria-hidden="true" />
+                {className || 'Entries'}
+              </h2>
+              <p className="card-sub">
+                {filteredEntries.length} {filteredEntries.length === 1 ? 'entry' : 'entries'} · {date}
+              </p>
+            </div>
           </div>
-          <div className="p-6 space-y-4">
+
+          <div>
             {filteredEntries.map((e: any) => (
-              <div key={e.id} className="bg-slate-900/40 border border-slate-700/50 rounded-2xl p-4">
-                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
-                  <div className="text-white font-semibold">
-                    {e.subjectName || 'Subject'} <span className="text-slate-400 font-normal">• {e.staffName || 'Unknown staff'}</span>
+              <div className="list-row" key={e.id} style={{ alignItems: 'flex-start' }}>
+                <span className="initials initials-accent" aria-hidden="true">
+                  {initialsOf(e.subjectName || 'Subject')}
+                </span>
+                <div className="stack" style={{ gap: 5, flex: '1 1 auto', minWidth: 0 }}>
+                  <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+                    <b style={{ fontSize: '0.875rem', fontWeight: 650 }}>{e.subjectName || 'Subject'}</b>
+                    <span style={{ color: 'var(--ink-3)', fontSize: '0.75rem' }}>
+                      {e.staffName || 'Unknown staff'}
+                    </span>
                   </div>
-                  <div className="text-slate-400 text-sm">{e.date || date}</div>
+                  <p className="prose-note">{e.content}</p>
                 </div>
-                <div className="text-slate-300 text-sm mt-2 whitespace-pre-wrap leading-relaxed">
-                  {e.content}
-                </div>
+                <span style={{ color: 'var(--ink-4)', fontSize: '0.75rem', flexShrink: 0 }}>
+                  {e.date || date}
+                </span>
               </div>
             ))}
           </div>
-        </div>
+        </section>
       )}
     </div>
   );

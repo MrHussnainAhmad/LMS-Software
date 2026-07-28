@@ -1,14 +1,16 @@
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { api, getSyncStatus } from '../utils/api';
 import productLogo from '../../icon.png';
-import { 
-  LayoutDashboard, 
-  Building2, 
-  Users, 
-  GraduationCap, 
-  ClipboardCheck, 
+import CommandPalette, { type NavTarget } from '../ui/CommandPalette';
+import Modal from '../ui/Modal';
+import {
+  LayoutDashboard,
+  Building2,
+  Users,
+  GraduationCap,
+  ClipboardCheck,
   FileText,
   BookOpen,
   ArrowUpCircle,
@@ -19,8 +21,54 @@ import {
   Settings,
   Search,
   ChevronDown,
-  CircleHelp
+  CircleHelp,
+  Check,
+  Megaphone,
+  LifeBuoy,
+  PanelLeft,
+  ShieldCheck,
+  Award,
 } from 'lucide-react';
+
+const NAV_ITEMS: NavTarget[] = [
+  { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard, group: 'Workspace' },
+  { name: 'Admins', path: '/admin', icon: ShieldCheck, group: 'Institution' },
+  { name: 'Campuses', path: '/campuses', icon: Building2, group: 'Institution' },
+  { name: 'Staff', path: '/staff', icon: Users, group: 'Institution' },
+  { name: 'Students', path: '/students', icon: GraduationCap, group: 'Institution' },
+  { name: 'Daily Diary', path: '/diary', icon: BookOpen, group: 'Academics' },
+  { name: 'Attendance', path: '/attendance', icon: ClipboardCheck, group: 'Academics' },
+  { name: 'Exams', path: '/exams', icon: FileText, group: 'Academics' },
+  { name: 'Results', path: '/results', icon: Award, group: 'Academics' },
+  { name: 'Auto Promotion', path: '/promotion', icon: ArrowUpCircle, group: 'Academics' },
+  { name: 'ID Cards', path: '/id-card', icon: IdCard, group: 'Operations' },
+  { name: 'Leaves', path: '/leaves', icon: CalendarOff, group: 'Operations' },
+  { name: 'Timetable', path: '/timetable', icon: CalendarDays, group: 'Operations' },
+  { name: 'Announcements', path: '/announcements', icon: Megaphone, group: 'Operations' },
+  { name: 'Helpdesk', path: '/helpdesk', icon: LifeBuoy, group: 'Operations' },
+  { name: 'Settings', path: '/settings', icon: Settings, group: 'Operations' },
+];
+
+const NAV_GROUPS = ['Workspace', 'Institution', 'Academics', 'Operations'];
+
+/** `g` then a letter jumps straight to a screen — muscle memory beats clicking. */
+const JUMP_KEYS: Record<string, string> = {
+  d: '/dashboard',
+  c: '/campuses',
+  f: '/staff',
+  s: '/students',
+  y: '/diary',
+  a: '/attendance',
+  e: '/exams',
+  r: '/results',
+  p: '/promotion',
+  i: '/id-card',
+  l: '/leaves',
+  t: '/timetable',
+  n: '/announcements',
+  h: '/helpdesk',
+  ',': '/settings',
+};
 
 export default function DashboardLayout() {
   const navigate = useNavigate();
@@ -30,17 +78,19 @@ export default function DashboardLayout() {
   const [selectedCampus, setSelectedCampus] = useState<any>({ id: 'all', name: 'All campuses' });
   const [showCampusDropdown, setShowCampusDropdown] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searching, setSearching] = useState(false);
-  const [studentResults, setStudentResults] = useState<any[]>([]);
-  const [staffResults, setStaffResults] = useState<any[]>([]);
   const [showHelp, setShowHelp] = useState(false);
   const [campusQuery, setCampusQuery] = useState('');
   const [syncStatus, setSyncStatus] = useState<any>(null);
-  const [browserOnline, setBrowserOnline] = useState<boolean>(typeof navigator !== 'undefined' ? navigator.onLine : true);
-  const [campusMenuPos, setCampusMenuPos] = useState<{ top: number; left: number; width: number } | null>(null);
+  const [browserOnline, setBrowserOnline] = useState<boolean>(
+    typeof navigator !== 'undefined' ? navigator.onLine : true,
+  );
+  const [campusMenuPos, setCampusMenuPos] = useState<{ top: number; left: number; width: number } | null>(
+    null,
+  );
+  const [railOpen, setRailOpen] = useState(false);
   const campusButtonRef = useRef<HTMLButtonElement>(null);
   const campusMenuRef = useRef<HTMLDivElement>(null);
+  const jumpArmedAt = useRef(0);
 
   useEffect(() => {
     async function fetchCampuses() {
@@ -101,6 +151,7 @@ export default function DashboardLayout() {
   useEffect(() => {
     setShowCampusDropdown(false);
     setCampusQuery('');
+    setRailOpen(false);
   }, [location.pathname]);
 
   useEffect(() => {
@@ -139,6 +190,50 @@ export default function DashboardLayout() {
     };
   }, [showCampusDropdown]);
 
+  // Keyboard layer: ⌘K / Ctrl+K opens the palette, `?` opens the guide,
+  // and `g` + letter jumps between screens.
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      const target = event.target as HTMLElement | null;
+      const typing =
+        !!target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
+          target.isContentEditable);
+
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        setShowSearch(true);
+        return;
+      }
+
+      if (typing || event.metaKey || event.ctrlKey || event.altKey) return;
+
+      if (event.key === '?') {
+        event.preventDefault();
+        setShowHelp(true);
+        return;
+      }
+
+      if (event.key === 'g') {
+        jumpArmedAt.current = Date.now();
+        return;
+      }
+
+      if (jumpArmedAt.current && Date.now() - jumpArmedAt.current < 900) {
+        const path = JUMP_KEYS[event.key.toLowerCase()];
+        jumpArmedAt.current = 0;
+        if (path) {
+          event.preventDefault();
+          navigate(path);
+        }
+      }
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [navigate]);
+
   function selectCampus(campus: { id: number | string; name: string }) {
     setSelectedCampus(campus);
     localStorage.setItem('selected_campus_id', String(campus.id));
@@ -153,280 +248,297 @@ export default function DashboardLayout() {
     navigate('/login');
   };
 
-  const navItems = [
-    { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard, group: 'Workspace' },
-    { name: 'Admin', path: '/admin', icon: Settings, group: 'Institution' },
-    { name: 'Campuses', path: '/campuses', icon: Building2, group: 'Institution' },
-    { name: 'Staff', path: '/staff', icon: Users, group: 'Institution' },
-    { name: 'Students', path: '/students', icon: GraduationCap, group: 'Institution' },
-    { name: 'Daily Diary', path: '/diary', icon: BookOpen, group: 'Academics' },
-    { name: 'Attendance', path: '/attendance', icon: ClipboardCheck, group: 'Academics' },
-    { name: 'Exams', path: '/exams', icon: FileText, group: 'Academics' },
-    { name: 'Results', path: '/results', icon: FileText, group: 'Academics' },
-    { name: 'Auto Promotion', path: '/promotion', icon: ArrowUpCircle, group: 'Academics' },
-    { name: 'ID Card', path: '/id-card', icon: IdCard, group: 'Operations' },
-    { name: 'Leaves', path: '/leaves', icon: CalendarOff, group: 'Operations' },
-    { name: 'Timetable', path: '/timetable', icon: CalendarDays, group: 'Operations' },
-    { name: 'Announcements', path: '/announcements', icon: ClipboardCheck, group: 'Operations' },
-    { name: 'HelpDesk', path: '/helpdesk', icon: Users, group: 'Operations' },
-    { name: 'Settings', path: '/settings', icon: Settings, group: 'Operations' },
-  ];
-  const navigationGroups = ['Workspace', 'Institution', 'Academics', 'Operations'];
-  const currentPage = navItems.find((item) => item.path === location.pathname)?.name || 'Workspace';
-  const filteredCampuses = campuses.filter((campus) => campus.name?.toLowerCase().includes(campusQuery.toLowerCase()));
+  const activeItem = NAV_ITEMS.find((item) => item.path === location.pathname);
+  const currentPage = activeItem?.name || 'Workspace';
+  const currentGroup = activeItem?.group || 'Institution';
+  const filteredCampuses = useMemo(
+    () => campuses.filter((campus) => campus.name?.toLowerCase().includes(campusQuery.toLowerCase())),
+    [campuses, campusQuery],
+  );
 
-  useEffect(() => {
-    if (!showSearch) return;
-    const q = searchQuery.trim();
-    if (!q) {
-      setStudentResults([]);
-      setStaffResults([]);
-      return;
-    }
-    const timer = setTimeout(async () => {
-      setSearching(true);
-      try {
-        const campusParam = selectedCampus?.id && selectedCampus.id !== 'all' ? `&campusId=${selectedCampus.id}` : '';
-        const [studentsRes, staffRes] = await Promise.all([
-          api.get(`/institution/students/picker?q=${encodeURIComponent(q)}&limit=8${campusParam}`).catch(() => ({ students: [] })),
-          api.get(`/institution/staff?q=${encodeURIComponent(q)}${campusParam}`).catch(() => ({ staff: [] })),
-        ]);
-        setStudentResults(studentsRes?.students || []);
-        setStaffResults(staffRes?.staff || []);
-      } finally {
-        setSearching(false);
-      }
-    }, 220);
-    return () => clearTimeout(timer);
-  }, [searchQuery, showSearch, selectedCampus]);
+  const pendingCount = Number(syncStatus?.pendingCount || 0);
 
   return (
-    <div className="app-shell shell-v2 flex h-screen w-full bg-slate-900 text-slate-100 overflow-hidden font-sans">
-      {/* Sidebar */}
-      <aside className="app-sidebar workspace-rail w-64 bg-slate-800/50 border-r border-slate-700/50 flex flex-col backdrop-blur-xl transition-all">
-        {/* Header */}
-        <div className="brand-lockup h-16 flex items-center px-6 border-b border-slate-700/50">
-          <div className="flex items-center gap-3">
-            <div className="brand-mark w-8 h-8 rounded-lg bg-indigo-500 flex items-center justify-center">
-              <img src={productLogo} alt="Nisaab360" />
-            </div>
-            <div className="brand-copy"><span className="font-semibold text-white tracking-wide">Nisaab360</span><small>Institution suite</small></div>
-          </div>
+    <div className="app-shell">
+      {railOpen && (
+        <div className="rail-backdrop" role="presentation" onClick={() => setRailOpen(false)} />
+      )}
+
+      <aside className="rail" data-open={railOpen ? 'true' : undefined}>
+        <div className="rail-brand">
+          <span className="rail-mark">
+            <img src={productLogo} alt="" className="w-5 h-5" />
+          </span>
+          <span className="rail-wordmark">
+            <b>Nisaab360</b>
+            <span>Institution suite</span>
+          </span>
         </div>
 
-        {/* Navigation */}
-        <nav className="rail-navigation flex-1 py-5 px-3 space-y-5 overflow-y-auto custom-scrollbar">
-          {navigationGroups.map((group) => (
-            <div key={group} className="rail-group">
-              <p className="nav-section px-3 mb-2 text-[10px] uppercase tracking-[.14em] font-semibold text-slate-500">{group}</p>
-              <div className="space-y-1">
-              {navItems.filter((item) => item.group === group).map((item) => {
-            const Icon = item.icon;
-            return (
-              <NavLink
-                key={item.path}
-                to={item.path}
-                className={({ isActive }) =>
-                  `flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition-all duration-200 ${
-                    isActive
-                      ? 'is-active bg-indigo-500/10 text-indigo-400'
-                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-700/30'
-                  }`
-                }
-              >
-                <Icon className="w-5 h-5" />
-                {item.name}
-              </NavLink>
-            );
+        <nav className="rail-scroll" aria-label="Primary">
+          {NAV_GROUPS.map((group) => (
+            <div className="rail-group" key={group}>
+              <p className="rail-label">{group}</p>
+              {NAV_ITEMS.filter((item) => item.group === group).map((item) => {
+                const Icon = item.icon;
+                return (
+                  <NavLink
+                    key={item.path}
+                    to={item.path}
+                    title={item.name}
+                    className={({ isActive }) => `rail-link ${isActive ? 'is-active' : ''}`}
+                  >
+                    <Icon />
+                    <span>{item.name}</span>
+                  </NavLink>
+                );
               })}
-              </div>
             </div>
           ))}
         </nav>
 
-        {/* User profile & Logout */}
-        <div className="p-4 border-t border-slate-700/50">
-          <button
-            onClick={handleLogout}
-            className="w-full flex items-center gap-3 px-3 py-2.5 text-slate-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors font-medium text-left"
-          >
-            <LogOut className="w-5 h-5" />
-            Sign Out
+        <div className="rail-foot">
+          <div className="rail-user">
+            <span className="rail-avatar" aria-hidden="true">
+              AD
+            </span>
+            <span className="rail-user-copy">
+              <b>Institution admin</b>
+              <span>
+                <i
+                  aria-hidden="true"
+                  style={{
+                    width: 6,
+                    height: 6,
+                    borderRadius: 999,
+                    background: effectiveOnline ? 'var(--ok)' : 'var(--warn)',
+                    display: 'inline-block',
+                  }}
+                />
+                {effectiveOnline ? 'Synced' : 'Working offline'}
+              </span>
+            </span>
+          </div>
+          <button type="button" className="rail-signout" onClick={handleLogout}>
+            <LogOut />
+            <span>Sign out</span>
           </button>
         </div>
       </aside>
 
-      {/* Main Content Area */}
-      <main className="workspace-stage flex-1 flex flex-col relative overflow-hidden bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-slate-800/40 via-slate-900 to-slate-950">
-        <div className="absolute top-0 right-0 -mr-20 -mt-20 w-96 h-96 rounded-full bg-indigo-500/10 blur-[100px] pointer-events-none" />
-        <div className="absolute bottom-0 left-0 -ml-20 -mb-20 w-96 h-96 rounded-full bg-sky-500/10 blur-[100px] pointer-events-none" />
-        <header className="workspace-topbar relative z-30">
-          <div className="workspace-crumb"><span className="workspace-kicker">Nisaab360 / Institution</span><strong>{currentPage}</strong></div>
-          <div className="workspace-actions flex items-center gap-2">
-            {syncStatus && (
-              <div className="hidden md:flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-600">
-                <span className={`inline-block w-2 h-2 rounded-full ${effectiveOnline ? 'bg-emerald-500' : 'bg-amber-500'}`} />
-                <span>{effectiveOnline ? 'Online' : 'Offline'}</span>
-                {syncStatus.pendingCount > 0 && <span>· {syncStatus.pendingCount} pending</span>}
-              </div>
-            )}
-            
-            <button aria-label="Search" onClick={() => setShowSearch(true)} className="workspace-icon"><Search className="w-4 h-4" /></button>
+      <main className="main">
+        <header className="topbar">
+          <button
+            type="button"
+            className="icon-btn rail-toggle"
+            aria-label="Toggle navigation"
+            onClick={() => setRailOpen((open) => !open)}
+          >
+            <PanelLeft />
+          </button>
 
-            <button aria-label="Help" onClick={() => setShowHelp(true)} className="workspace-icon"><CircleHelp className="w-4 h-4" /></button>
-            
-            <div className="relative">
-              <button
-                ref={campusButtonRef}
-                type="button"
-                onClick={() => setShowCampusDropdown((open) => !open)}
-                className="workspace-campus min-w-[140px] justify-between cursor-pointer"
+          <div className="topbar-heading">
+            <span className="topbar-kicker">{currentGroup}</span>
+            <strong className="topbar-title">{currentPage}</strong>
+          </div>
+
+          <div className="topbar-actions">
+            {syncStatus && (
+              <span
+                className={`sync-tag ${effectiveOnline ? 'is-live' : 'is-offline'}`}
+                title={
+                  effectiveOnline
+                    ? 'Connected — changes sync in the background'
+                    : 'Offline — changes are queued and will sync automatically'
+                }
               >
-                {selectedCampus.name} <ChevronDown className="w-4 h-4" />
-              </button>
-              {showCampusDropdown && campusMenuPos && createPortal(
-                <div
-                  ref={campusMenuRef}
-                  style={{ top: campusMenuPos.top, left: Math.max(12, campusMenuPos.left), width: campusMenuPos.width }}
-                  className="fixed bg-white border border-slate-200 rounded-2xl shadow-2xl py-2 z-[9999]"
-                >
-                  <div className="px-3 pb-2">
-                    <input
-                      autoFocus
-                      type="text"
-                      placeholder="Search campus..."
-                      value={campusQuery}
-                      onChange={(e) => setCampusQuery(e.target.value)}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-800 outline-none focus:ring-2 focus:ring-indigo-500"
-                    />
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => selectCampus({ id: 'all', name: 'All campuses' })}
-                    className={`w-full text-left px-4 py-2.5 text-sm hover:bg-slate-50 transition-colors ${selectedCampus.id === 'all' ? 'text-indigo-600 font-medium' : 'text-slate-700'}`}
-                  >
-                    All campuses
-                  </button>
-                  <div className="max-h-72 overflow-y-auto custom-scrollbar">
-                    {filteredCampuses.map((c) => (
-                      <button
-                        key={c.id}
-                        type="button"
-                        onClick={() => selectCampus(c)}
-                        className={`w-full text-left px-4 py-2.5 text-sm hover:bg-slate-50 transition-colors ${String(selectedCampus.id) === String(c.id) ? 'text-indigo-600 font-medium' : 'text-slate-700'}`}
-                      >
-                        {c.name}
-                      </button>
-                    ))}
-                    {filteredCampuses.length === 0 && (
-                      <div className="px-4 py-6 text-center text-sm text-slate-500">No campuses found.</div>
-                    )}
-                  </div>
-                </div>,
-                document.body
-              )}
-            </div>
+                <i aria-hidden="true" />
+                <span>
+                  {effectiveOnline ? 'Online' : 'Offline'}
+                  {pendingCount > 0 ? ` · ${pendingCount} queued` : ''}
+                </span>
+              </span>
+            )}
+
+            <button type="button" className="cmd-trigger" onClick={() => setShowSearch(true)}>
+              <Search />
+              <span>Search or jump to…</span>
+              <kbd className="kbd">Ctrl K</kbd>
+            </button>
+
+            <div className="topbar-sep" aria-hidden="true" />
+
+            <button
+              ref={campusButtonRef}
+              type="button"
+              onClick={() => setShowCampusDropdown((open) => !open)}
+              className={`campus-pill ${showCampusDropdown ? 'is-open' : ''}`}
+              aria-expanded={showCampusDropdown}
+              aria-haspopup="listbox"
+            >
+              <Building2 />
+              <span>{selectedCampus.name}</span>
+              <ChevronDown />
+            </button>
+
+            <button
+              type="button"
+              aria-label="Keyboard shortcuts and guide"
+              className="icon-btn"
+              onClick={() => setShowHelp(true)}
+            >
+              <CircleHelp />
+            </button>
           </div>
         </header>
-        
-        <div className="app-scroll flex-1 overflow-y-auto relative z-0 custom-scrollbar">
-          <div className="app-content p-8">
-            <Outlet context={{ selectedCampus }} />
-          </div>
+
+        <div className="canvas">
+          <Outlet context={{ selectedCampus }} />
         </div>
       </main>
 
-      {/* Help Modal */}
-      {showHelp && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="workspace-modal bg-slate-900 border border-slate-700 rounded-2xl p-6 w-full max-w-md shadow-2xl animate-in fade-in zoom-in-95">
-            <h2 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
-              <CircleHelp className="w-6 h-6 text-indigo-400" /> Guide
-            </h2>
-            <div className="space-y-4 text-slate-300 text-sm leading-relaxed">
-              <p>Welcome to the <strong>Nisaab360 Institution Portal</strong>.</p>
-              <ul className="list-disc pl-5 space-y-2 text-slate-400">
-                <li><strong>Dashboard:</strong> View institution-wide or campus-specific statistics.</li>
-                <li><strong>Campuses & Staff:</strong> Manage your institutional hierarchy and employees.</li>
-                <li><strong>Search:</strong> Use the search bar in the header to quickly find students by ID or staff by name.</li>
-                <li><strong>Filtering:</strong> Use the campus dropdown in the header to filter data across the application.</li>
-              </ul>
-              <p className="pt-4 border-t border-slate-800">For further assistance, please contact support.</p>
+      {showCampusDropdown &&
+        campusMenuPos &&
+        createPortal(
+          <div
+            ref={campusMenuRef}
+            style={{
+              position: 'fixed',
+              top: campusMenuPos.top,
+              left: Math.max(12, campusMenuPos.left),
+              width: campusMenuPos.width,
+              zIndex: 120,
+            }}
+            className="menu"
+            role="listbox"
+          >
+            <div style={{ padding: '4px 5px 8px' }}>
+              <label className="search-field">
+                <Search aria-hidden="true" />
+                <input
+                  autoFocus
+                  type="text"
+                  className="input input-sm"
+                  placeholder="Filter campuses…"
+                  value={campusQuery}
+                  onChange={(e) => setCampusQuery(e.target.value)}
+                  aria-label="Filter campuses"
+                />
+              </label>
             </div>
-            <div className="mt-6 flex justify-end">
-              <button onClick={() => setShowHelp(false)} className="bg-slate-800 hover:bg-slate-700 text-white px-4 py-2 rounded-xl transition-colors font-medium">Close</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showSearch && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 backdrop-blur-sm p-4 pt-24" onClick={() => setShowSearch(false)}>
-          <div className="workspace-modal w-full max-w-2xl bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center gap-3 px-4 py-4 border-b border-slate-800">
-              <Search className="w-5 h-5 text-slate-400" />
-              <input
-                autoFocus
-                type="text"
-                placeholder="Search student ID, teacher name..."
-                className="flex-1 bg-transparent border-none outline-none text-base text-slate-100"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
-              <button onClick={() => setShowSearch(false)} className="text-slate-500 hover:text-slate-200 text-sm">Close</button>
-            </div>
-            <div className="p-5 text-sm text-slate-400">
-              {!searchQuery.trim() ? (
-                <div>Type student universal ID or teacher name.</div>
-              ) : searching ? (
-                <div>Searching...</div>
-              ) : (
-                <div className="space-y-4">
-                  <div>
-                    <div className="text-xs uppercase tracking-wider text-slate-500 mb-2">Students</div>
-                    {studentResults.length === 0 ? (
-                      <div className="text-slate-500">No students found.</div>
-                    ) : (
-                      <div className="space-y-2">
-                        {studentResults.map((s: any) => (
-                          <button
-                            key={`stu-${s.id}`}
-                            onClick={() => { setShowSearch(false); navigate('/students'); }}
-                            className="w-full text-left rounded-xl border border-slate-800 bg-slate-800/40 px-3 py-2 hover:bg-slate-800"
-                          >
-                            <div className="text-slate-200 text-sm font-medium">{s.name}</div>
-                            <div className="text-slate-500 text-xs">{s.loginRollNumber || s.classRollNumber} • {s.className} {s.sectionName ? `- ${s.sectionName}` : ''}</div>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  <div>
-                    <div className="text-xs uppercase tracking-wider text-slate-500 mb-2">Teachers / Staff</div>
-                    {staffResults.length === 0 ? (
-                      <div className="text-slate-500">No staff found.</div>
-                    ) : (
-                      <div className="space-y-2">
-                        {staffResults.slice(0, 8).map((s: any) => (
-                          <button
-                            key={`stf-${s.id}`}
-                            onClick={() => { setShowSearch(false); navigate('/staff'); }}
-                            className="w-full text-left rounded-xl border border-slate-800 bg-slate-800/40 px-3 py-2 hover:bg-slate-800"
-                          >
-                            <div className="text-slate-200 text-sm font-medium">{s.name}</div>
-                            <div className="text-slate-500 text-xs">{s.email || ''}</div>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
+            <button
+              type="button"
+              onClick={() => selectCampus({ id: 'all', name: 'All campuses' })}
+              className={`menu-item ${selectedCampus.id === 'all' ? 'is-active' : ''}`}
+              role="option"
+              aria-selected={selectedCampus.id === 'all'}
+            >
+              <Building2 />
+              <span>All campuses</span>
+              {selectedCampus.id === 'all' && <Check />}
+            </button>
+            <div className="menu-sep" aria-hidden="true" />
+            <div className="menu-scroll">
+              {filteredCampuses.map((c) => {
+                const on = String(selectedCampus.id) === String(c.id);
+                return (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => selectCampus(c)}
+                    className={`menu-item ${on ? 'is-active' : ''}`}
+                    role="option"
+                    aria-selected={on}
+                  >
+                    <Building2 />
+                    <span>{c.name}</span>
+                    {on && <Check />}
+                  </button>
+                );
+              })}
+              {filteredCampuses.length === 0 && (
+                <p className="menu-empty">
+                  {campusQuery ? 'No campus matches that name.' : 'No campuses yet.'}
+                </p>
               )}
             </div>
-          </div>
+          </div>,
+          document.body,
+        )}
+
+      <CommandPalette
+        open={showSearch}
+        onClose={() => setShowSearch(false)}
+        targets={NAV_ITEMS}
+        onNavigate={(path) => navigate(path)}
+        campusId={selectedCampus?.id}
+      />
+
+      <Modal
+        open={showHelp}
+        onClose={() => setShowHelp(false)}
+        title="Working faster"
+        description="A short tour of the workspace, plus every shortcut worth learning."
+        size="md"
+        footer={
+          <button type="button" className="btn btn-primary" onClick={() => setShowHelp(false)}>
+            Got it
+          </button>
+        }
+      >
+        <div className="stack" style={{ gap: 18 }}>
+          <section>
+            <p className="section-rule" style={{ marginBottom: 10 }}>
+              Shortcuts
+            </p>
+            <div className="stack" style={{ gap: 8 }}>
+              {[
+                ['Ctrl K', 'Open the command palette — jump to a page, student or staff member'],
+                ['g then d', 'Dashboard'],
+                ['g then s', 'Students'],
+                ['g then f', 'Staff'],
+                ['g then a', 'Attendance'],
+                ['g then e', 'Exams'],
+                ['g then t', 'Timetable'],
+                ['?', 'Open this guide'],
+                ['Esc', 'Close any dialog'],
+              ].map(([keys, what]) => (
+                <div className="row" key={keys}>
+                  <span style={{ display: 'flex', gap: 4, minWidth: 92 }}>
+                    {keys.split(' then ').map((k) => (
+                      <kbd className="kbd" key={k}>
+                        {k}
+                      </kbd>
+                    ))}
+                  </span>
+                  <span style={{ color: 'var(--ink-2)', fontSize: '0.8125rem' }}>{what}</span>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section>
+            <p className="section-rule" style={{ marginBottom: 10 }}>
+              How the workspace fits together
+            </p>
+            <div className="stack" style={{ gap: 9, color: 'var(--ink-2)', fontSize: '0.8125rem' }}>
+              <p>
+                <b style={{ color: 'var(--ink)' }}>Campus selector</b> — the pill in the header filters
+                every screen that is campus-aware. Set it once and it follows you.
+              </p>
+              <p>
+                <b style={{ color: 'var(--ink)' }}>Offline first</b> — the app keeps a local copy of your
+                data. Edits made offline are queued and pushed the moment you reconnect; the header badge
+                tells you how many are waiting.
+              </p>
+              <p>
+                <b style={{ color: 'var(--ink)' }}>Institution → Academics → Operations</b> — the rail is
+                ordered the way a term runs: set up people first, then teaching, then day-to-day admin.
+              </p>
+            </div>
+          </section>
         </div>
-      )}
+      </Modal>
     </div>
   );
 }

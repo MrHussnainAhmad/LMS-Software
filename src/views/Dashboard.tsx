@@ -1,15 +1,52 @@
-import React, { useEffect, useState } from 'react';
-import { useOutletContext } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { useNavigate, useOutletContext } from 'react-router-dom';
 import { api } from '../utils/api';
-import { 
+import {
   XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer, AreaChart, Area,
-  PieChart, Pie, Cell, BarChart, Bar
+  PieChart, Pie, Cell, BarChart, Bar, CartesianGrid
 } from 'recharts';
-import { Building2, Users, GraduationCap, BookOpen, Bell, CalendarDays, ArrowUpRight } from 'lucide-react';
+import {
+  Building2, Users, GraduationCap, BookOpen, Bell, CalendarDays, ArrowRight,
+  TrendingUp, PieChart as PieIcon, ClipboardCheck, Megaphone,
+} from 'lucide-react';
 import PageSkeleton from '../components/PageSkeleton';
+import { EmptyState, ErrorNote, Stat } from '../ui/Bits';
+
+/* A restrained palette that belongs to the same family as the rest of the UI.
+   Charts should read as part of the document, not as a separate toy. */
+const SERIES = ['#2C3A5C', '#BE7B14', '#14795A', '#2C69AC', '#8A6BA8', '#B0433D'];
+
+function greeting() {
+  const hour = new Date().getHours();
+  if (hour < 12) return 'Good morning';
+  if (hour < 17) return 'Good afternoon';
+  return 'Good evening';
+}
+
+function ChartTip({ active, payload, label, suffix = '' }: any) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="chart-tip">
+      {label !== undefined && <b>{String(label)}</b>}
+      {payload.map((entry: any) => (
+        <div key={entry.name} style={{ color: entry.color || entry.payload?.color }}>
+          <i aria-hidden="true" />
+          <span style={{ color: 'var(--ink-2)' }}>
+            {entry.name}: <b style={{ color: 'var(--ink)' }}>{entry.value}{suffix}</b>
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ChartBlank({ text }: { text: string }) {
+  return <div className="chart-blank">{text}</div>;
+}
 
 export default function Dashboard() {
   const { selectedCampus } = useOutletContext<any>();
+  const navigate = useNavigate();
   const [data, setData] = useState({ campuses: 0, classes: 0, staff: 0, students: 0 });
   const [charts, setCharts] = useState({ attendanceTrends: [], classDistribution: [], examPerformance: [] });
   const [announcements, setAnnouncements] = useState<any[]>([]);
@@ -25,7 +62,7 @@ export default function Dashboard() {
           api.get(`/institution/dashboard/charts${campusQuery}`).catch(() => ({ attendanceTrends: [], classDistribution: [], examPerformance: [] })),
           api.get('/institution/announcements').catch(() => ({ announcements: [] })),
         ]);
-        
+
         setData({
           campuses: dashResp.campuses || 0,
           classes: dashResp.classes || 0,
@@ -33,11 +70,9 @@ export default function Dashboard() {
           students: dashResp.students || 0
         });
 
-        // Set chart data, apply colors to class distribution
-        const colors = ['#3b82f6', '#8b5cf6', '#f59e0b', '#10b981', '#ef4444', '#06b6d4'];
         const classDist = (chartsResp?.classDistribution || []).map((c: any, i: number) => ({
           ...c,
-          color: colors[i % colors.length]
+          color: SERIES[i % SERIES.length]
         }));
 
         setCharts({
@@ -64,181 +99,216 @@ export default function Dashboard() {
     loadData();
   }, [selectedCampus]);
 
-  const stats = [
-    { title: 'Total Campuses', value: data.campuses, change: 'Active', icon: Building2, color: 'from-blue-500 to-indigo-500' },
-    { title: 'Active Staff', value: data.staff, change: 'Active', icon: Users, color: 'from-emerald-400 to-teal-500' },
-    { title: 'Enrolled Students', value: data.students, change: 'Active', icon: GraduationCap, color: 'from-orange-400 to-pink-500' },
-    { title: 'Total Classes', value: data.classes, change: 'Active', icon: BookOpen, color: 'from-violet-400 to-purple-500' }
-  ];
+  const scopeLabel =
+    selectedCampus?.id && selectedCampus.id !== 'all' ? selectedCampus.name : 'all campuses';
 
   if (loading) {
     return (
-      <PageSkeleton cards={4} rows={4} />
+      <div className="page">
+        <PageSkeleton cards={4} rows={4} />
+      </div>
     );
   }
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-500">
-      <div className="dashboard-hero">
-        <div className="dashboard-intro">
-          <div>
-            <span className="eyebrow">Institution pulse</span>
-            <h1 className="text-3xl font-bold text-white tracking-tight">Good morning, Admin.</h1>
-            <p className="text-slate-400">Here’s a clear view of your institution today.</p>
-          </div>
-          <div className="dashboard-date"><CalendarDays className="w-4 h-4" /><span>{new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}</span></div>
+    <div className="page">
+      <header className="page-head">
+        <div>
+          <h1 className="page-title">{greeting()}.</h1>
+          <p className="page-sub">
+            Today across <strong style={{ color: 'var(--ink-2)', fontWeight: 600 }}>{scopeLabel}</strong>.
+            Numbers refresh as your staff record attendance, results and diary entries.
+          </p>
         </div>
-      </div>
-
-      {error && (
-        <div className="bg-red-500/10 border border-red-500/50 text-red-500 p-4 rounded-xl">
-          {error}
+        <div className="page-tools">
+          <span className="chip chip-mute">
+            <CalendarDays aria-hidden="true" />
+            {new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}
+          </span>
+          <button type="button" className="btn btn-quiet" onClick={() => navigate('/announcements')}>
+            <Megaphone />
+            Announce something
+          </button>
         </div>
-      )}
+      </header>
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {stats.map((stat, i) => {
-          const Icon = stat.icon;
-          return (
-            <div key={i} className="metric-card bg-slate-800/50 backdrop-blur-xl border border-slate-700/50 rounded-2xl p-6 shadow-xl transition-transform hover:-translate-y-1 duration-300">
-              <div className="flex items-start justify-between">
-                <div>
-                  <p className="text-slate-400 text-sm font-medium">{stat.title}</p>
-                  <h3 className="text-3xl font-bold text-white mt-2 tracking-tight">{stat.value}</h3>
-                </div>
-                <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${stat.color} flex items-center justify-center shadow-lg`}>
-                  <Icon className="w-6 h-6 text-white" />
-                </div>
-              </div>
-              <div className="mt-4 flex items-center text-sm">
-                <span className="text-emerald-400 font-medium">{stat.change}</span><ArrowUpRight className="w-3.5 h-3.5 ml-auto text-slate-400" />
-              </div>
+      {error && <ErrorNote message={error} />}
+
+      <section className="metrics">
+        <Stat label="Campuses" value={data.campuses} icon={<Building2 />} tone="brand" foot="Active locations" />
+        <Stat label="Staff" value={data.staff} icon={<Users />} tone="ok" foot="On the payroll" />
+        <Stat label="Students" value={data.students} icon={<GraduationCap />} tone="accent" foot="Currently enrolled" />
+        <Stat label="Classes" value={data.classes} icon={<BookOpen />} tone="info" foot="Across all sections" />
+      </section>
+
+      <section className="dash-charts">
+        <article className="card">
+          <div className="card-head">
+            <div className="card-head-copy">
+              <h2 className="card-title">
+                <TrendingUp aria-hidden="true" />
+                Attendance this week
+              </h2>
+              <p className="card-sub">Students marked present, by day.</p>
             </div>
-          )
-        })}
-      </div>
-
-      {/* Charts / Activity Area 1 */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Attendance Trends */}
-        <div className="bg-slate-800/50 backdrop-blur-xl border border-slate-700/50 rounded-2xl p-6 h-80 shadow-xl flex flex-col">
-          <h3 className="text-lg font-semibold text-white mb-4">Weekly Attendance (Present)</h3>
-          <div className="flex-1 w-full h-full mt-2">
+          </div>
+          <div className="card-body chart-frame">
             {charts.attendanceTrends.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={charts.attendanceTrends} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <AreaChart data={charts.attendanceTrends} margin={{ top: 6, right: 8, left: -18, bottom: 0 }}>
                   <defs>
                     <linearGradient id="colorAtt" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.8}/>
-                      <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                      <stop offset="0%" stopColor="#14795A" stopOpacity={0.22} />
+                      <stop offset="100%" stopColor="#14795A" stopOpacity={0} />
                     </linearGradient>
                   </defs>
-                  <XAxis dataKey="date" stroke="#64748b" fontSize={12} tickLine={false} axisLine={false} />
-                  <YAxis stroke="#64748b" fontSize={12} tickLine={false} axisLine={false} />
-                  <RechartsTooltip 
-                    contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }}
-                    itemStyle={{ color: '#f8fafc' }}
+                  <CartesianGrid vertical={false} />
+                  <XAxis dataKey="date" tickLine={false} axisLine={false} />
+                  <YAxis tickLine={false} axisLine={false} width={44} />
+                  <RechartsTooltip content={<ChartTip />} />
+                  <Area
+                    type="monotone"
+                    dataKey="PRESENT"
+                    stroke="#14795A"
+                    strokeWidth={2}
+                    fillOpacity={1}
+                    fill="url(#colorAtt)"
+                    dot={{ r: 2.5, strokeWidth: 0, fill: '#14795A' }}
+                    activeDot={{ r: 4 }}
                   />
-                  <Area type="monotone" dataKey="PRESENT" stroke="#10b981" fillOpacity={1} fill="url(#colorAtt)" />
                 </AreaChart>
               </ResponsiveContainer>
             ) : (
-              <div className="flex items-center justify-center h-full text-slate-500">No attendance data</div>
+              <ChartBlank text="No attendance recorded yet this week." />
             )}
           </div>
-        </div>
+        </article>
 
-        {/* Exam Performance */}
-        <div className="bg-slate-800/50 backdrop-blur-xl border border-slate-700/50 rounded-2xl p-6 h-80 shadow-xl flex flex-col">
-          <h3 className="text-lg font-semibold text-white mb-4">Recent Exam Performance</h3>
-          <div className="flex-1 w-full h-full mt-2">
+        <article className="card">
+          <div className="card-head">
+            <div className="card-head-copy">
+              <h2 className="card-title">
+                <ClipboardCheck aria-hidden="true" />
+                Recent exam averages
+              </h2>
+              <p className="card-sub">Mean score per published exam.</p>
+            </div>
+          </div>
+          <div className="card-body chart-frame">
             {charts.examPerformance.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={charts.examPerformance} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                  <XAxis dataKey="title" stroke="#64748b" fontSize={12} tickLine={false} axisLine={false} />
-                  <YAxis stroke="#64748b" fontSize={12} tickLine={false} axisLine={false} />
-                  <RechartsTooltip 
-                    cursor={{fill: 'rgba(255,255,255,0.05)'}}
-                    contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }}
-                    itemStyle={{ color: '#f8fafc' }}
-                  />
-                  <Bar dataKey="average" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
+                <BarChart data={charts.examPerformance} margin={{ top: 6, right: 8, left: -18, bottom: 0 }}>
+                  <CartesianGrid vertical={false} />
+                  <XAxis dataKey="title" tickLine={false} axisLine={false} interval={0} />
+                  <YAxis tickLine={false} axisLine={false} width={44} />
+                  <RechartsTooltip cursor={{ fill: 'rgba(19,26,42,0.04)' }} content={<ChartTip />} />
+                  <Bar dataKey="average" fill="#BE7B14" radius={[4, 4, 0, 0]} maxBarSize={34} />
                 </BarChart>
               </ResponsiveContainer>
             ) : (
-              <div className="flex items-center justify-center h-full text-slate-500">No exam data</div>
+              <ChartBlank text="No exam results published yet." />
             )}
           </div>
-        </div>
-      </div>
+        </article>
+      </section>
 
-      {/* Charts / Activity Area 2 */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Class Distribution */}
-        <div className="bg-slate-800/50 backdrop-blur-xl border border-slate-700/50 rounded-2xl p-6 h-96 shadow-xl flex flex-col">
-          <h3 className="text-lg font-semibold text-white mb-4">Class Distribution</h3>
-          <div className="flex-1 w-full h-full relative flex items-center justify-center">
+      <section className="dash-lower">
+        <article className="card">
+          <div className="card-head">
+            <div className="card-head-copy">
+              <h2 className="card-title">
+                <PieIcon aria-hidden="true" />
+                Class distribution
+              </h2>
+              <p className="card-sub">Where your students sit.</p>
+            </div>
+          </div>
+          <div className="card-body">
             {charts.classDistribution.length > 0 ? (
               <>
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={charts.classDistribution}
-                      innerRadius={60}
-                      outerRadius={80}
-                      paddingAngle={5}
-                      dataKey="value"
-                    >
-                      {charts.classDistribution.map((entry: any, index: number) => (
-                        <Cell key={`cell-${index}`} fill={entry.color} />
-                      ))}
-                    </Pie>
-                    <RechartsTooltip 
-                      contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }}
-                      itemStyle={{ color: '#f8fafc' }}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-                {/* Custom Legend */}
-                <div className="absolute bottom-0 w-full flex flex-wrap justify-center gap-4 text-xs font-medium text-slate-300">
-                  {charts.classDistribution.map((c: any, i: number) => (
-                    <div key={i} className="flex items-center gap-1.5">
-                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: c.color }} />
+                <div style={{ height: 176 }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={charts.classDistribution}
+                        innerRadius={54}
+                        outerRadius={78}
+                        paddingAngle={2}
+                        stroke="#fff"
+                        strokeWidth={2}
+                        dataKey="value"
+                      >
+                        {charts.classDistribution.map((entry: any, index: number) => (
+                          <Cell key={`cell-${index}`} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <RechartsTooltip content={<ChartTip />} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="chart-legend" style={{ marginTop: 14 }}>
+                  {charts.classDistribution.slice(0, 6).map((c: any, i: number) => (
+                    <div className="chart-legend-row" key={i}>
+                      <i style={{ backgroundColor: c.color }} aria-hidden="true" />
                       {c.name}
+                      <b>{c.value}</b>
                     </div>
                   ))}
                 </div>
               </>
             ) : (
-              <div className="flex items-center justify-center h-full text-slate-500">No classes found</div>
+              <ChartBlank text="No classes set up yet." />
             )}
           </div>
-        </div>
-        
-        {/* Recent Announcements */}
-        <div className="lg:col-span-2 bg-slate-800/50 backdrop-blur-xl border border-slate-700/50 rounded-2xl p-6 h-96 shadow-xl flex flex-col">
-          <div className="flex justify-between items-center mb-6">
-            <h3 className="text-lg font-semibold text-white">Recent Announcements</h3>
-            <button className="text-sm text-indigo-400 hover:text-indigo-300 font-medium">View All</button>
+        </article>
+
+        <article className="card" style={{ display: 'flex', flexDirection: 'column' }}>
+          <div className="card-head">
+            <div className="card-head-copy">
+              <h2 className="card-title">
+                <Bell aria-hidden="true" />
+                Latest announcements
+              </h2>
+              <p className="card-sub">The four most recent broadcasts.</p>
+            </div>
+            <div className="card-tools">
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => navigate('/announcements')}>
+                View all
+                <ArrowRight />
+              </button>
+            </div>
           </div>
-          <div className="flex-1 space-y-3 overflow-y-auto custom-scrollbar pr-2">
-            {announcements.length > 0 ? announcements.map((item: any) => (
-              <div key={item.id} className="flex items-start gap-4 p-4 rounded-xl bg-slate-700/20 border border-slate-600/30 hover:bg-slate-700/40 transition-colors">
-                <div className="w-10 h-10 rounded-full bg-indigo-500/20 flex items-center justify-center flex-shrink-0 text-indigo-400">
-                  <Bell className="w-5 h-5" />
+          <div style={{ flex: '1 1 auto' }}>
+            {announcements.length > 0 ? (
+              announcements.map((item: any) => (
+                <div className="list-row" key={item.id}>
+                  <span className="initials initials-accent" aria-hidden="true">
+                    <Bell className="w-3.5 h-3.5" />
+                  </span>
+                  <span className="cell-stack" style={{ flex: '1 1 auto', minWidth: 0 }}>
+                    <b style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {item.title}
+                    </b>
+                    <span>{item.date}</span>
+                  </span>
+                  <span className="chip chip-brand">{item.type === 'ALL' ? 'Everyone' : item.type}</span>
                 </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-slate-200 truncate">{item.title}</p>
-                  <p className="text-xs text-slate-500 mt-1">{item.date} • {item.type}</p>
-                </div>
-              </div>
-            )) : (
-              <div className="flex items-center justify-center h-full text-slate-500">No recent announcements</div>
+              ))
+            ) : (
+              <EmptyState
+                icon={<Megaphone />}
+                title="Nothing announced yet"
+                text="Broadcast a message and it will appear here for every staff member and student you target."
+                action={
+                  <button type="button" className="btn btn-primary" onClick={() => navigate('/announcements')}>
+                    Write an announcement
+                  </button>
+                }
+              />
             )}
           </div>
-        </div>
-      </div>
+        </article>
+      </section>
     </div>
   );
 }

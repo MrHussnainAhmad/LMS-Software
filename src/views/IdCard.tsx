@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
-import { Download, Filter, Printer, Users } from 'lucide-react';
+import { Download, Printer, Search, IdCard as IdCardIcon } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 import { api } from '../utils/api';
 import PageSkeleton from '../components/PageSkeleton';
+import { EmptyState, ErrorNote, PageHead } from '../ui/Bits';
+import { useToast } from '../ui/Feedback';
 
 type PickerStudent = { id: number; name: string; classRollNumber: string; className: string; sectionName: string };
 type CardStudent = PickerStudent & {
@@ -148,16 +150,17 @@ function IdCardPreview({ student, institution }: { student: CardStudent; institu
           <div style={{ position: 'absolute', inset: 0, backfaceVisibility: 'hidden', transform: 'rotateY(180deg)' }}>{faces[1]}</div>
         </div>
       </div>
-      <div style={{ fontSize: 10, color: '#aaa', letterSpacing: '0.04em' }}>{flipped ? 'Back' : 'Front'} · click to flip</div>
+      <div style={{ fontSize: 11, color: 'var(--ink-4)', letterSpacing: '0.03em' }}>{flipped ? 'Back' : 'Front'} · click to flip</div>
     </div>
   );
 }
 
 export default function IdCard() {
+  const toast = useToast();
   const [students, setStudents] = useState<CardStudent[]>([]);
   const [institution, setInstitution] = useState<any>(null);
-  const [loading] = useState(false);
   const [filtering, setFiltering] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [error, setError] = useState('');
   const [q, setQ] = useState('');
   const [hasSearched, setHasSearched] = useState(false);
@@ -237,11 +240,26 @@ export default function IdCard() {
   }
 
   async function handleDownloadStudent(student: CardStudent) {
-    await exportPdf([student], `id-card-${student.loginRollNumber.split('@')[0]}.pdf`);
+    setExporting(true);
+    try {
+      await exportPdf([student], `id-card-${student.loginRollNumber.split('@')[0]}.pdf`);
+    } catch (err: any) {
+      toast.error('Could not build the PDF', err.message || 'Try again in a moment.');
+    } finally {
+      setExporting(false);
+    }
   }
 
   async function handleDownloadAll() {
-    await exportPdf(students, 'id-cards.pdf');
+    setExporting(true);
+    try {
+      await exportPdf(students, 'id-cards.pdf');
+      toast.success('PDF ready', `${students.length} ${students.length === 1 ? 'card' : 'cards'}, front and back.`);
+    } catch (err: any) {
+      toast.error('Could not build the PDF', err.message || 'Try again in a moment.');
+    } finally {
+      setExporting(false);
+    }
   }
 
   function handlePrintStudent(student: CardStudent) {
@@ -283,96 +301,117 @@ export default function IdCard() {
   }
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-500">
+    <div className="page">
       <style>{`@media print { body * { visibility: hidden !important; } #print-cards, #print-cards * { visibility: visible !important; } #print-cards { position: absolute !important; left: 0 !important; top: 0 !important; width: 100% !important; background: white !important; padding: 20px !important; display: flex !important; flex-direction: column !important; gap: 32px !important; } }`}</style>
 
-      <div>
-        <h1 className="text-3xl font-bold text-white tracking-tight">ID Card Generator</h1>
-        <p className="text-slate-400 mt-1">Preview, print, and export both sides of student ID cards.</p>
-      </div>
+      <PageHead
+        title="ID cards"
+        subtitle="Look up a student by universal ID, check both faces, then print or export a press-ready PDF."
+      >
+        <button
+          type="button"
+          className="btn btn-quiet"
+          disabled={students.length === 0 || exporting}
+          onClick={handleDownloadAll}
+        >
+          <Download />
+          {exporting ? 'Preparing…' : 'Download PDF'}
+        </button>
+        <button
+          type="button"
+          className="btn btn-primary"
+          disabled={students.length === 0}
+          onClick={handlePrintAll}
+        >
+          <Printer />
+          Print all
+        </button>
+      </PageHead>
 
-      <div className="relative z-20 rounded-2xl border border-slate-700/50 bg-slate-800/50 p-4 shadow-xl">
-        <label htmlFor="id-card-search" className="mb-2 block text-sm font-medium text-slate-300">
-          Student Universal ID
-        </label>
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-          <input
-            id="id-card-search"
-            type="text"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                loadCards(q);
-              }
+      <section className="card">
+        <div className="card-pad">
+          <form
+            className="row"
+            style={{ gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}
+            onSubmit={(e) => {
+              e.preventDefault();
+              loadCards(q);
             }}
-            placeholder="Enter universal ID (e.g. I24-00001234)"
-            className="w-full lg:flex-1 bg-white border border-slate-300 text-slate-900 text-sm rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 pointer-events-auto"
-            autoComplete="off"
-          />
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              className="bg-slate-700 hover:bg-slate-600 text-white px-4 py-2.5 rounded-xl font-medium transition-all flex items-center gap-2"
-              onClick={() => loadCards(q)}
-              disabled={filtering}
-            >
-              <Filter className="w-5 h-5" /> {filtering ? 'Loading...' : 'Load ID Card'}
+          >
+            <label className="field" style={{ flex: '1 1 320px' }}>
+              <span className="label">Student universal ID</span>
+              <input
+                id="id-card-search"
+                type="text"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="e.g. I24-00001234"
+                className="input"
+                autoComplete="off"
+              />
+              <span className="field-hint">A name works too — anything the student picker can match.</span>
+            </label>
+            <button type="submit" className="btn btn-primary" disabled={filtering}>
+              <Search />
+              {filtering ? 'Looking up…' : 'Load card'}
             </button>
-            <button
-              type="button"
-              className="bg-slate-700 hover:bg-slate-600 text-white px-4 py-2.5 rounded-xl font-medium transition-all flex items-center gap-2 disabled:opacity-50"
-              disabled={students.length === 0}
-              onClick={handleDownloadAll}
-            >
-              <Download className="w-5 h-5" /> Download PDF
-            </button>
-            <button
-              type="button"
-              className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-xl font-medium shadow-lg shadow-indigo-500/20 transition-all flex items-center gap-2 disabled:opacity-50"
-              disabled={students.length === 0}
-              onClick={handlePrintAll}
-            >
-              <Printer className="w-5 h-5" /> Print All
-            </button>
-          </div>
+          </form>
         </div>
-      </div>
+      </section>
 
-      {error && <div className="bg-red-500/10 border border-red-500/50 text-red-500 p-4 rounded-xl">{error}</div>}
+      {error && <ErrorNote message={error} />}
 
-      {loading ? (
-        <PageSkeleton cards={4} rows={2} />
+      {filtering ? (
+        <PageSkeleton cards={2} rows={0} />
       ) : students.length === 0 ? (
-        <div className="bg-slate-800/50 border border-slate-700/50 rounded-2xl p-12 text-center shadow-xl">
-          <Users className="w-12 h-12 text-slate-500 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-white">{hasSearched ? 'No ID Cards Found' : 'ID Card Preview Locked'}</h3>
-          <p className="text-slate-400 mt-2">
-            {hasSearched
-              ? 'No student matched this universal ID.'
-              : 'Enter a student universal ID and click "Load ID Card".'}
-          </p>
+        <div className="card">
+          <EmptyState
+            icon={<IdCardIcon />}
+            title={hasSearched ? 'No card for that ID' : 'Nothing loaded yet'}
+            text={
+              hasSearched
+                ? 'No student matched this universal ID. Check the ID on their profile and try again.'
+                : 'Enter a universal ID above and load the card. You will see the front and the back before anything is printed.'
+            }
+          />
         </div>
       ) : (
-        <div>
-          <p className="mb-4 text-xs font-semibold uppercase tracking-widest text-slate-400">Preview — click a card to flip</p>
-          <div className="flex flex-wrap gap-10 justify-center">
+        <section className="card">
+          <div className="card-head">
+            <div className="card-head-copy">
+              <h2 className="card-title">Preview</h2>
+              <p className="card-sub">
+                {students.length} {students.length === 1 ? 'card' : 'cards'} · click a card to flip it
+              </p>
+            </div>
+          </div>
+          <div className="card-pad" style={{ display: 'flex', flexWrap: 'wrap', gap: 32, justifyContent: 'center' }}>
             {students.map((student) => (
-              <div key={student.id} className="space-y-3">
+              <div key={student.id} className="stack" style={{ gap: 10, alignItems: 'center' }}>
                 <IdCardPreview student={student} institution={institution} />
-                <div className="flex justify-center gap-2">
-                  <button className="p-2 rounded-lg bg-slate-700 hover:bg-indigo-600 text-white transition-colors" title="Download PDF" onClick={() => handleDownloadStudent(student)}>
-                    <Download className="w-4 h-4" />
+                <div className="row" style={{ gap: 8 }}>
+                  <button
+                    type="button"
+                    className="btn btn-quiet btn-sm"
+                    disabled={exporting}
+                    onClick={() => handleDownloadStudent(student)}
+                  >
+                    <Download />
+                    PDF
                   </button>
-                  <button className="p-2 rounded-lg bg-slate-700 hover:bg-indigo-600 text-white transition-colors" title="Print" onClick={() => handlePrintStudent(student)}>
-                    <Printer className="w-4 h-4" />
+                  <button
+                    type="button"
+                    className="btn btn-quiet btn-sm"
+                    onClick={() => handlePrintStudent(student)}
+                  >
+                    <Printer />
+                    Print
                   </button>
                 </div>
               </div>
             ))}
           </div>
-        </div>
+        </section>
       )}
 
       <div id="print-cards" style={{ display: 'none' }}>
