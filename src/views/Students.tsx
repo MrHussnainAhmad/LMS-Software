@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
-import { api, BASE_URL, getAuthToken } from '../utils/api';
+import { api, API_ORIGIN, BASE_URL, getAuthToken } from '../utils/api';
 import { Search, Plus, Eye, GraduationCap, Upload, Download, FileSpreadsheet } from 'lucide-react';
 import PageSkeleton from '../components/PageSkeleton';
 import Modal from '../ui/Modal';
@@ -20,8 +20,8 @@ function formatUniversalId(value?: string | null) {
 function normalizeImageUrl(value?: string | null) {
   if (!value) return null;
   if (/^https?:\/\//i.test(value) || value.startsWith('data:') || value.startsWith('blob:')) return value;
-  if (value.startsWith('/')) return `https://nisaab360.app${value}`;
-  return `https://nisaab360.app/${value}`;
+  if (value.startsWith('/')) return `${API_ORIGIN}${value}`;
+  return `${API_ORIGIN}/${value}`;
 }
 
 function initialsOf(name: string) {

@@ -1,7 +1,6 @@
-const { net } = require('electron');
-const dns = require('node:dns/promises');
 const { setOnlineStatus, schedulePushSoon } = require('./engine');
 const { logSync } = require('./logger');
+const { API_BASE_URL } = require('../config');
 
 let lastOnline = null;
 let pollId = null;
@@ -17,15 +16,18 @@ function checkConnectivity() {
 }
 
 async function probeInternet() {
-  if (!net.isOnline()) return false;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 1500);
   try {
-    await Promise.race([
-      dns.lookup('nisaab360.app'),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('dns-timeout')), 1500)),
-    ]);
-    return true;
+    const response = await fetch(`${API_BASE_URL}/health`, {
+      method: 'GET',
+      signal: controller.signal,
+    });
+    return response.ok;
   } catch {
     return false;
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 

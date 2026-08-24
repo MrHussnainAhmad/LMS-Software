@@ -1,7 +1,14 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
+const apiOriginArgument = process.argv.find((argument) => argument.startsWith('--nisaab360-api-origin='));
+const apiOrigin = apiOriginArgument?.slice('--nisaab360-api-origin='.length) || 'https://nisaab360.app';
+
 contextBridge.exposeInMainWorld('electronAPI', {
   isElectron: true,
+  config: {
+    apiOrigin,
+    apiBaseUrl: `${apiOrigin}/api`,
+  },
   data: {
     request(method, endpoint, data, authToken) {
       return ipcRenderer.invoke('data:request', { method, endpoint, data, authToken });

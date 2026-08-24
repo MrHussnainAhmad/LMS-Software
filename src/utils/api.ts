@@ -1,4 +1,5 @@
-export const BASE_URL = 'https://nisaab360.app/api';
+export const API_ORIGIN = window.electronAPI?.config?.apiOrigin || 'https://nisaab360.app';
+export const BASE_URL = window.electronAPI?.config?.apiBaseUrl || `${API_ORIGIN}/api`;
 
 export const getAuthToken = () => localStorage.getItem('nisaab_token');
 export const setAuthToken = (token: string) => localStorage.setItem('nisaab_token', token);

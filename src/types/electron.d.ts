@@ -4,6 +4,10 @@ declare global {
   interface Window {
     electronAPI?: {
       isElectron: boolean;
+      config: {
+        apiOrigin: string;
+        apiBaseUrl: string;
+      };
       data: {
         request(method: string, endpoint: string, data?: unknown, authToken?: string | null): Promise<any>;
       };

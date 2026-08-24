@@ -6,9 +6,10 @@ const { getRecentLogs } = require('../sync/logger');
 const { remoteRequest } = require('../sync/remote');
 const { pullAll } = require('../sync/pull');
 const { checkConnectivity } = require('../sync/connectivity');
+const { API_ORIGIN, API_BASE_URL } = require('../config');
 
-const VERSION_URL = 'https://nisaab360.app/api/public/software-version';
-const DOWNLOAD_URL = 'https://nisaab360.app/download-software';
+const VERSION_URL = `${API_BASE_URL}/public/software-version`;
+const DOWNLOAD_URL = `${API_ORIGIN}/download-software`;
 
 function isVersionNewer(candidate, current) {
   const candidateParts = String(candidate || '').replace(/^v/i, '').split(/[.-]/).map((part) => Number.parseInt(part, 10) || 0);

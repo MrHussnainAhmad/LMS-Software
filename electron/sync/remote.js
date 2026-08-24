@@ -1,6 +1,7 @@
 const { getMeta } = require('../db');
+const { API_BASE_URL } = require('../config');
 
-const BASE_URL = 'https://nisaab360.app/api';
+const BASE_URL = API_BASE_URL;
 
 async function remoteRequest(method, endpoint, body, tokenOverride) {
   const token = tokenOverride || getMeta('auth_token');

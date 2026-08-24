@@ -4,8 +4,9 @@ const { registerIpcHandlers } = require('./ipc/handlers');
 const { startConnectivityMonitor, stopConnectivityMonitor } = require('./sync/connectivity');
 const { scheduleMidnightPull } = require('./sync/scheduler');
 const { initDatabase } = require('./db');
+const { API_ORIGIN } = require('./config');
 
-const isDev = process.env.NODE_ENV === 'development';
+const isDev = !app.isPackaged;
 
 // Keep Windows shell previews and Electron-owned mini windows aligned with the product title.
 app.setName('Nisaab360 - Institution Portal');
@@ -19,6 +20,7 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
+      additionalArguments: [`--nisaab360-api-origin=${API_ORIGIN}`],
     },
     autoHideMenuBar: true,
   });

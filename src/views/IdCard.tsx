@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Download, Printer, Search, IdCard as IdCardIcon } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
-import { api } from '../utils/api';
+import { api, API_ORIGIN } from '../utils/api';
 import PageSkeleton from '../components/PageSkeleton';
 import { EmptyState, ErrorNote, PageHead } from '../ui/Bits';
 import { useToast } from '../ui/Feedback';
@@ -19,8 +19,8 @@ type CardStudent = PickerStudent & {
 function normalizeImageUrl(value?: string | null) {
   if (!value) return null;
   if (/^https?:\/\//i.test(value) || value.startsWith('data:') || value.startsWith('blob:')) return value;
-  if (value.startsWith('/')) return `https://nisaab360.app${value}`;
-  return `https://nisaab360.app/${value}`;
+  if (value.startsWith('/')) return `${API_ORIGIN}${value}`;
+  return `${API_ORIGIN}/${value}`;
 }
 
 const W = 380;

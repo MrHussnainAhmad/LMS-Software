@@ -2,11 +2,26 @@
   "name": "institution-panel-v2",
   "private": true,
   "version": "1.0.0",
+  "description": "Offline-first desktop institution management panel for Nisaab360.",
+  "author": {
+    "name": "Hussnain Ahmad",
+    "url": "https://github.com/MrHussnainAhmad"
+  },
+  "license": "GPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MrHussnainAhmad/LMS-Software.git"
+  },
+  "homepage": "https://github.com/MrHussnainAhmad/LMS-Software#readme",
+  "bugs": {
+    "url": "https://github.com/MrHussnainAhmad/LMS-Software/issues"
+  },
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {
     "dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
     "build": "vite build && electron-builder",
+    "build:local": "vite build && electron-builder -c.extraMetadata.nisaab360ApiOrigin=http://127.0.0.1:3000",
     "rebuild:native": "npx @electron/rebuild -f -w better-sqlite3",
     "lint": "oxlint",
     "preview": "vite preview"
@@ -41,7 +56,7 @@
       "installerIcon": "build/logo.ico",
       "uninstallerIcon": "build/logo.ico",
       "installerHeaderIcon": "build/logo.ico",
-      "license": "build\\LICENSE.txt",
+      "license": "LICENSE",
       "include": "build\\installer.nsh"
     }
   },
