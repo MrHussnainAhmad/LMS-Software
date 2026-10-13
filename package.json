@@ -2,7 +2,7 @@
   "name": "institution-panel-v2",
   "private": true,
   "version": "1.0.0",
-  "description": "Offline-first desktop institution management panel for Nisaab360.",
+  "description": "Nisaab360 Institution Panel",
   "author": {
     "name": "Hussnain Ahmad",
     "url": "https://github.com/MrHussnainAhmad"
@@ -36,6 +36,7 @@
     "files": [
       "dist/**/*",
       "electron/**/*",
+      "icon.png",
       "node_modules/better-sqlite3/**/*"
     ],
     "asarUnpack": [
@@ -65,6 +66,7 @@
     "html2canvas": "^1.4.1",
     "jspdf": "^4.2.1",
     "lucide-react": "^0.473.0",
+    "qrcode": "^1.5.4",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "react-router-dom": "^7.1.3",
@@ -72,6 +74,7 @@
   },
   "devDependencies": {
     "@types/node": "^24.13.2",
+    "@types/qrcode": "^1.5.6",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.3",

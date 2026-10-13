@@ -315,7 +315,7 @@ export default function Exams() {
           ];
 
       const headers = Object.keys(rows[0] || { 'Student Name': '', 'Roll Number': '' });
-      const csv = [headers.join(','), ...rows.map((row) => headers.map((h) => `"${String(row[h] ?? '').replaceAll('"', '""')}"`).join(','))].join('\n');
+      const csv = [headers.join(','), ...rows.map((row: Record<string, unknown>) => headers.map((h) => `"${String(row[h] ?? '').replaceAll('"', '""')}"`).join(','))].join('\n');
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
       const objectUrl = URL.createObjectURL(blob);
       const link = document.createElement('a');

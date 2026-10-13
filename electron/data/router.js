@@ -89,17 +89,19 @@ function handleGet(endpoint) {
       args.push(Number(campusId));
     }
     const q = (params.get('q') || '').trim().toLowerCase();
-    query += ' ORDER BY name';
-    let rows = db.prepare(query).all(...args);
     if (q) {
-      rows = rows.filter((row) =>
-        (row.name || '').toLowerCase().includes(q) ||
-        (row.login_roll_number || '').toLowerCase().includes(q) ||
-        (row.class_roll_number || '').toLowerCase().includes(q)
-      );
+      query += ` AND (
+        lower(coalesce(name, '')) LIKE ? OR
+        lower(coalesce(login_roll_number, '')) LIKE ? OR
+        lower(coalesce(class_roll_number, '')) LIKE ?
+      )`;
+      const pattern = `%${q}%`;
+      args.push(pattern, pattern, pattern);
     }
-    const limit = Number(params.get('limit') || 30);
-    return { students: studentsToPickerRows(rows.slice(0, limit)) };
+    const limit = Math.min(200, Math.max(1, Number(params.get('limit') || 30) || 30));
+    query += ' ORDER BY name COLLATE NOCASE LIMIT ?';
+    args.push(limit);
+    return { students: studentsToPickerRows(db.prepare(query).all(...args)) };
   }
 
   if (path === '/institution/students/id-cards') {
@@ -120,7 +122,7 @@ function handleGet(endpoint) {
       }
     }
 
-    if (rows.length === 0) {
+    if (rows.length === 0 && !studentIdsParam) {
       rows = db.prepare('SELECT * FROM students WHERE is_deleted = 0 ORDER BY name').all();
     }
 
@@ -169,20 +171,23 @@ function handleGet(endpoint) {
       query += ' AND campus_id = ?';
       args.push(Number(campusId));
     }
-    query += ' ORDER BY name';
-    let rows = db.prepare(query).all(...args);
     const q = (params.get('q') || '').trim().toLowerCase();
     if (q) {
-      rows = rows.filter((row) =>
-        (row.name || '').toLowerCase().includes(q) ||
-        (row.email || '').toLowerCase().includes(q)
-      );
+      query += ` AND (
+        lower(coalesce(name, '')) LIKE ? OR
+        lower(coalesce(email, '')) LIKE ?
+      )`;
+      const pattern = `%${q}%`;
+      args.push(pattern, pattern);
     }
-    return { staff: staffToRows(rows) };
+    query += ' ORDER BY name COLLATE NOCASE';
+    if (q) query += ' LIMIT 20';
+    return { staff: staffToRows(db.prepare(query).all(...args)) };
   }
 
   if (path === '/institution/announcements') {
-    const rows = db.prepare('SELECT * FROM announcements WHERE is_deleted = 0 ORDER BY created_at DESC').all();
+    const limit = Math.min(200, Math.max(1, Number(params.get('limit') || 100) || 100));
+    const rows = db.prepare('SELECT * FROM announcements WHERE is_deleted = 0 ORDER BY created_at DESC LIMIT ?').all(limit);
     return { announcements: announcementsToRows(rows) };
   }
 

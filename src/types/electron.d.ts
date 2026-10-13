@@ -14,6 +14,7 @@ declare global {
       sync: {
         initial(token: string): Promise<{ success: boolean }>;
         pull(token?: string): Promise<{ success: boolean }>;
+        students(token?: string): Promise<{ success: boolean; students: number }>;
         push(): Promise<unknown>;
         status(): Promise<{
           online: boolean;

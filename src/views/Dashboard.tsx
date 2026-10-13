@@ -11,6 +11,8 @@ import {
 } from 'lucide-react';
 import PageSkeleton from '../components/PageSkeleton';
 import { EmptyState, ErrorNote, Stat } from '../ui/Bits';
+import PlatformReviewForm from '../components/PlatformReviewForm';
+import { CheckSquare, Star } from 'lucide-react';
 
 /* A restrained palette that belongs to the same family as the rest of the UI.
    Charts should read as part of the document, not as a separate toy. */
@@ -47,7 +49,7 @@ function ChartBlank({ text }: { text: string }) {
 export default function Dashboard() {
   const { selectedCampus } = useOutletContext<any>();
   const navigate = useNavigate();
-  const [data, setData] = useState({ campuses: 0, classes: 0, staff: 0, students: 0 });
+  const [data, setData] = useState({ campuses: 0, classes: 0, staff: 0, students: 0, attendancePct: '--', hasReview: true });
   const [charts, setCharts] = useState({ attendanceTrends: [], classDistribution: [], examPerformance: [] });
   const [announcements, setAnnouncements] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -57,17 +59,31 @@ export default function Dashboard() {
     async function loadData() {
       try {
         const campusQuery = selectedCampus?.id !== 'all' && selectedCampus?.id ? `?campusId=${selectedCampus.id}` : '';
-        const [dashResp, chartsResp, announcementsResp] = await Promise.all([
+        const todayStr = new Date().toISOString().split('T')[0];
+        const [dashResp, chartsResp, announcementsResp, reviewResp, attendanceResp] = await Promise.all([
           api.get(`/institution/dashboard${campusQuery}`),
           api.get(`/institution/dashboard/charts${campusQuery}`).catch(() => ({ attendanceTrends: [], classDistribution: [], examPerformance: [] })),
-          api.get('/institution/announcements').catch(() => ({ announcements: [] })),
+          api.get('/institution/announcements?limit=4').catch(() => ({ announcements: [] })),
+          api.get('/me/review').catch(() => null),
+          api.get(`/institution/staff-attendance?date=${todayStr}`).catch(() => ({ records: [] })),
         ]);
+
+        let todayPresent = 0;
+        let todayTotal = attendanceResp?.records?.length || 0;
+        if (attendanceResp?.records) {
+          attendanceResp.records.forEach((r: any) => {
+            if (r.status === 'PRESENT') todayPresent++;
+          });
+        }
+        const attendancePct = todayTotal > 0 ? `${Math.round((todayPresent / todayTotal) * 100)}%` : '--';
 
         setData({
           campuses: dashResp.campuses || 0,
           classes: dashResp.classes || 0,
           staff: dashResp.staff || 0,
-          students: dashResp.students || 0
+          students: dashResp.students || 0,
+          attendancePct,
+          hasReview: !!reviewResp?.review,
         });
 
         const classDist = (chartsResp?.classDistribution || []).map((c: any, i: number) => ({
@@ -135,10 +151,12 @@ export default function Dashboard() {
       {error && <ErrorNote message={error} />}
 
       <section className="metrics">
-        <Stat label="Campuses" value={data.campuses} icon={<Building2 />} tone="brand" foot="Active locations" />
-        <Stat label="Staff" value={data.staff} icon={<Users />} tone="ok" foot="On the payroll" />
-        <Stat label="Students" value={data.students} icon={<GraduationCap />} tone="accent" foot="Currently enrolled" />
-        <Stat label="Classes" value={data.classes} icon={<BookOpen />} tone="info" foot="Across all sections" />
+        <Stat label="Students" value={data.students} icon={<GraduationCap />} tone="brand" foot="Currently enrolled" />
+        <Stat label="Staff" value={data.staff} icon={<Users />} tone="ok" foot="Teaching & admin" />
+        <Stat label="Campuses" value={data.campuses} icon={<Building2 />} tone="accent" foot="Active locations" />
+        <div style={{ cursor: 'pointer' }} onClick={() => navigate('/attendance')} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter') navigate('/attendance'); }}>
+          <Stat label="Today's Attendance" value={data.attendancePct} icon={<CheckSquare />} tone="info" foot="Staff marked present" />
+        </div>
       </section>
 
       <section className="dash-charts">
@@ -212,7 +230,24 @@ export default function Dashboard() {
         </article>
       </section>
 
-      <section className="dash-lower">
+      {!data.hasReview && (
+        <section className="card" style={{ marginTop: 24, border: '1px solid var(--brand-3)', backgroundColor: 'var(--brand-0)' }}>
+          <div className="card-head">
+            <div className="card-head-copy">
+              <h2 className="card-title" style={{ color: 'var(--brand-6)' }}>
+                <Star aria-hidden="true" style={{ fill: 'var(--brand-5)', width: 20, height: 20, marginRight: 6 }} />
+                Leave a Review
+              </h2>
+            </div>
+          </div>
+          <div className="card-body" style={{ padding: '0 20px 20px' }}>
+            <p className="card-sub" style={{ marginBottom: 16 }}>Your feedback helps us improve Nisaab360 and will be featured on our homepage.</p>
+            <PlatformReviewForm onSuccess={() => setData(d => ({ ...d, hasReview: true }))} />
+          </div>
+        </section>
+      )}
+
+      <section className="dash-lower" style={{ marginTop: 24 }}>
         <article className="card">
           <div className="card-head">
             <div className="card-head-copy">

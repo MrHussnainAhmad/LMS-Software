@@ -1,11 +1,12 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { api } from '../utils/api';
-import { Plus, Search, Users, Mail, Copy, KeyRound, Check } from 'lucide-react';
+import { Plus, Search, Users, Mail, Copy, KeyRound, Check, Trash2 } from 'lucide-react';
 import PageSkeleton from '../components/PageSkeleton';
 import Modal from '../ui/Modal';
 import { EmptyState, ErrorNote, PageHead } from '../ui/Bits';
-import { useToast } from '../ui/Feedback';
+import ProfileRequestsPanel from '../components/ProfileRequestsPanel';
+import { useConfirm, useToast } from '../ui/Feedback';
 
 interface StaffMember {
   id: number;
@@ -31,6 +32,7 @@ function initialsOf(name: string) {
 export default function Staff() {
   const { selectedCampus } = useOutletContext<any>();
   const toast = useToast();
+  const confirm = useConfirm();
 
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [campuses, setCampuses] = useState<{ id: number; name: string }[]>([]);
@@ -108,13 +110,13 @@ export default function Staff() {
     return map;
   }, [campuses]);
 
-  function campusOf(person: StaffMember) {
+  const campusOf = useCallback((person: StaffMember) => {
     if (person.campus) return person.campus;
     if (person.campusId !== undefined && person.campusId !== null) {
       return campusNames.get(String(person.campusId)) || 'Main';
     }
     return 'Main';
-  }
+  }, [campusNames]);
 
   const visible = useMemo(() => {
     const term = query.trim().toLowerCase();
@@ -124,7 +126,7 @@ export default function Staff() {
         (value) => String(value || '').toLowerCase().includes(term),
       ),
     );
-  }, [staff, query, campusNames]);
+  }, [staff, query, campusOf]);
 
   async function copyValue(kind: 'email' | 'password', value: string) {
     try {
@@ -136,6 +138,15 @@ export default function Staff() {
     }
   }
 
+  async function removeStaff(person: StaffMember) {
+    if (!await confirm({ title: `Remove ${person.name}?`, body: 'Their staff login and role access will be revoked. This cannot be undone.', confirmLabel: 'Remove staff', tone: 'danger' })) return;
+    try {
+      await api.delete(`/institution/staff/${person.id}`);
+      setStaff((current) => current.filter((item) => item.id !== person.id));
+      toast.success('Staff member removed');
+    } catch (error: any) { toast.error('Could not remove staff member', error.message); }
+  }
+
   const scopeLabel =
     selectedCampus?.id && selectedCampus.id !== 'all' ? selectedCampus.name : 'every campus';
 
@@ -145,6 +156,7 @@ export default function Staff() {
         title="Staff"
         subtitle={`Teachers and administrators across ${scopeLabel}. A new account gets its login the moment you save it.`}
       >
+        <ProfileRequestsPanel kind="staff" />
         {staff.length > 0 && (
           <label className="search-field">
             <Search aria-hidden="true" />
@@ -215,6 +227,7 @@ export default function Staff() {
                     <th scope="col">Role</th>
                     <th scope="col">Campus</th>
                     <th scope="col">Email</th>
+                    <th scope="col" style={{ textAlign: 'right' }}>Action</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -243,6 +256,7 @@ export default function Staff() {
                           <span style={{ color: 'var(--ink-4)' }}>Not issued yet</span>
                         )}
                       </td>
+                      <td style={{ textAlign: 'right' }}><button type="button" className="icon-btn" title="Remove staff" aria-label={`Remove ${person.name}`} onClick={() => void removeStaff(person)}><Trash2 /></button></td>
                     </tr>
                   ))}
                 </tbody>

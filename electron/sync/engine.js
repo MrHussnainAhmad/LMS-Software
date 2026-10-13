@@ -7,6 +7,23 @@ const { getMeta, setMeta } = require('../db');
 let online = true;
 let pushTimer = null;
 let running = false;
+const FULL_PULL_FRESH_MS = 15 * 60 * 1000;
+
+function getTokenIdentity(token) {
+  try {
+    const payload = JSON.parse(Buffer.from(String(token).split('.')[1], 'base64url').toString('utf8'));
+    const userId = payload.userId ?? payload.sub;
+    if (!userId || !payload.role) return null;
+    return `${payload.role}:${userId}:${payload.institutionId ?? ''}`;
+  } catch {
+    return null;
+  }
+}
+
+function isRecent(timestamp, maxAgeMs) {
+  const value = timestamp ? new Date(timestamp).getTime() : Number.NaN;
+  return Number.isFinite(value) && Date.now() - value >= 0 && Date.now() - value < maxAgeMs;
+}
 
 function setOnlineStatus(status) {
   online = status;
@@ -35,7 +52,16 @@ async function runPushCycle() {
 
 async function runInitialSync(token) {
   setMeta('auth_token', token);
+  const identity = getTokenIdentity(token);
+  const sameAccount = Boolean(identity) && getMeta('sync_identity') === identity;
+  if (sameAccount && isRecent(getMeta('last_full_pull_at'), FULL_PULL_FRESH_MS)) {
+    logSync('pull', 'skipped', 'Recent local data reused after login');
+    if (online) await pushPendingBatch(token);
+    return { success: true, skipped: true };
+  }
+
   await pullAll(token);
+  if (identity) setMeta('sync_identity', identity);
   if (online) await pushPendingBatch(token);
   return { success: true };
 }

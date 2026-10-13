@@ -163,7 +163,15 @@ const CREATE_STATEMENTS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_students_server_id ON students(server_id)`,
   `CREATE INDEX IF NOT EXISTS idx_students_deleted ON students(is_deleted)`,
+  `CREATE INDEX IF NOT EXISTS idx_students_campus_deleted ON students(campus_id, is_deleted)`,
+  `CREATE INDEX IF NOT EXISTS idx_students_name ON students(name COLLATE NOCASE)`,
+  `CREATE INDEX IF NOT EXISTS idx_students_login_roll ON students(login_roll_number COLLATE NOCASE)`,
+  `CREATE INDEX IF NOT EXISTS idx_students_class_roll ON students(class_roll_number COLLATE NOCASE)`,
   `CREATE INDEX IF NOT EXISTS idx_staff_server_id ON staff(server_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_staff_campus_deleted ON staff(campus_id, is_deleted)`,
+  `CREATE INDEX IF NOT EXISTS idx_staff_name ON staff(name COLLATE NOCASE)`,
+  `CREATE INDEX IF NOT EXISTS idx_staff_email ON staff(email COLLATE NOCASE)`,
+  `CREATE INDEX IF NOT EXISTS idx_announcements_created ON announcements(is_deleted, created_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_sync_queue_status ON sync_queue(sync_status)`,
 ];
 

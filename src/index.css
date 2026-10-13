@@ -271,6 +271,20 @@
     white-space: nowrap;
   }
 
+  .rail-link .rail-badge {
+    min-width: 20px;
+    margin-left: auto;
+    padding: 2px 6px;
+    overflow: visible;
+    border-radius: 999px;
+    background: #dc2626;
+    color: #fff;
+    font-size: 0.625rem;
+    font-weight: 750;
+    line-height: 16px;
+    text-align: center;
+  }
+
   .rail-link:hover {
     background: var(--rail-2);
     color: #eef0f5;
@@ -616,6 +630,102 @@
     flex-direction: column;
     gap: 20px;
     animation: fade-up 0.18s var(--ease) both;
+  }
+
+  .workspace-switcher {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 10px;
+  }
+
+  .workspace-switcher > button {
+    min-height: 78px;
+    padding: 14px 16px;
+    border: 1px solid var(--line);
+    border-radius: var(--r-lg);
+    background: var(--surface);
+    color: var(--ink-2);
+    text-align: left;
+    transition: border-color var(--t) var(--ease), background-color var(--t) var(--ease), color var(--t) var(--ease);
+  }
+
+  .workspace-switcher > button:hover {
+    border-color: var(--brand-3);
+  }
+
+  .workspace-switcher > button.is-active {
+    border-color: var(--brand);
+    background: var(--brand);
+    color: #fff;
+  }
+
+  .workspace-switcher b,
+  .workspace-switcher span {
+    display: block;
+  }
+
+  .workspace-switcher b {
+    font-size: 0.8125rem;
+  }
+
+  .workspace-switcher span {
+    margin-top: 5px;
+    color: var(--ink-4);
+    font-size: 0.71875rem;
+    line-height: 1.45;
+  }
+
+  .workspace-switcher > button.is-active span {
+    color: rgba(255, 255, 255, 0.72);
+  }
+
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .btn.is-disabled {
+    pointer-events: none;
+    opacity: 0.58;
+  }
+
+  .qr-card {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    padding: 18px;
+  }
+
+  .qr-card > img {
+    flex: none;
+    padding: 7px;
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+    background: #fff;
+  }
+
+  .qr-card .cell-stack {
+    min-width: 0;
+    align-items: flex-start;
+  }
+
+  .qr-card .cell-stack > span {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+
+  .qr-card .qr-close {
+    position: absolute;
+    top: 10px;
+    right: 10px;
   }
 }
 
@@ -1941,6 +2051,7 @@
     transform: translateX(-100%);
     background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.72), transparent);
     animation: shimmer 1.25s linear infinite;
+    will-change: transform;
   }
 
   /* ---- Small utilities used across views ----------------------------- */

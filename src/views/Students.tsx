@@ -1,11 +1,12 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useDeferredValue } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { api, API_ORIGIN, BASE_URL, getAuthToken } from '../utils/api';
-import { Search, Plus, Eye, GraduationCap, Upload, Download, FileSpreadsheet } from 'lucide-react';
+import { Search, Plus, Eye, GraduationCap, Upload, Download, FileSpreadsheet, Trash2 } from 'lucide-react';
 import PageSkeleton from '../components/PageSkeleton';
 import Modal from '../ui/Modal';
 import { EmptyState, ErrorNote, PageHead } from '../ui/Bits';
-import { useToast } from '../ui/Feedback';
+import ProfileRequestsPanel from '../components/ProfileRequestsPanel';
+import { useConfirm, useToast } from '../ui/Feedback';
 
 function currentMonthValue() {
   const now = new Date();
@@ -37,6 +38,7 @@ function initialsOf(name: string) {
 export default function Students() {
   const { selectedCampus } = useOutletContext<any>();
   const toast = useToast();
+  const confirm = useConfirm();
 
   const [students, setStudents] = useState<any[]>([]);
   const [campuses, setCampuses] = useState<{ id: number; name: string }[]>([]);
@@ -56,6 +58,9 @@ export default function Students() {
   const [attendanceRows, setAttendanceRows] = useState<any[]>([]);
   const [marksRows, setMarksRows] = useState<any[]>([]);
   const [batchExamRows, setBatchExamRows] = useState<any[]>([]);
+  const [submissionRows, setSubmissionRows] = useState<any[]>([]);
+  const [feeAccount, setFeeAccount] = useState<any>(null);
+  const [analytics, setAnalytics] = useState<any>(null);
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -76,6 +81,7 @@ export default function Students() {
   const [filterClassId, setFilterClassId] = useState('');
   const [filterSectionId, setFilterSectionId] = useState('');
   const [query, setQuery] = useState('');
+  const deferredQuery = useDeferredValue(query);
 
   async function handleEnroll(e: React.FormEvent) {
     e.preventDefault();
@@ -136,9 +142,10 @@ export default function Students() {
         throw new Error(payload?.error || payload?.message || 'CSV import failed');
       }
 
-      // Refresh local SQLite/cache so imported students appear instantly in desktop views.
-      if (window.electronAPI?.sync?.pull) {
-        await window.electronAPI.sync.pull();
+      // Refresh only the student cache. A full institution pull also requests
+      // dashboards, settings, exams, roles, tickets and other unrelated data.
+      if (window.electronAPI?.sync?.students) {
+        await window.electronAPI.sync.students();
       }
 
       const campusQuery = selectedCampus?.id !== 'all' && selectedCampus?.id ? `&campusId=${selectedCampus.id}` : '';
@@ -175,18 +182,27 @@ export default function Students() {
 
 
   useEffect(() => {
-    async function fetchStudents() {
+    async function fetchMeta() {
       try {
-        const campusQuery = selectedCampus?.id !== 'all' && selectedCampus?.id ? `&campusId=${selectedCampus.id}` : '';
-        const [studentData, campusData, timetableData] = await Promise.all([
-          api.get(`/institution/students/picker?limit=100${campusQuery}`),
+        const [campusData, timetableData] = await Promise.all([
           api.get('/institution/campuses').catch(() => ({ campuses: [] })),
           api.get('/institution/timetable?metadata=true').catch(() => ({ allClasses: [], allSections: [] })),
         ]);
-        setStudents(studentData.students || []);
         setCampuses(campusData?.campuses || []);
         setClasses(timetableData?.allClasses || []);
         setSections(timetableData?.allSections || []);
+      } catch (err) {}
+    }
+    fetchMeta();
+  }, []);
+
+  useEffect(() => {
+    async function fetchStudents() {
+      try {
+        const campusQuery = selectedCampus?.id !== 'all' && selectedCampus?.id ? `&campusId=${selectedCampus.id}` : '';
+        const searchQuery = deferredQuery.trim() ? `&q=${encodeURIComponent(deferredQuery.trim())}` : '';
+        const studentData = await api.get(`/institution/students/picker?limit=100${campusQuery}${searchQuery}`);
+        setStudents(studentData.students || []);
       } catch (err: any) {
         setError(err.message || 'Failed to fetch students');
       } finally {
@@ -194,7 +210,7 @@ export default function Students() {
       }
     }
     fetchStudents();
-  }, [selectedCampus]);
+  }, [selectedCampus, deferredQuery]);
 
   const filteredSections = sections.filter((section) => String(section.classId) === String(formData.classId));
   const sectionsForFilter = filterClassId
@@ -213,23 +229,10 @@ export default function Students() {
       const matchesSectionName = Boolean(sectionObj?.name) && String(student.sectionName || '') === String(sectionObj?.name);
       if (!matchesSectionId && !matchesSectionName) return false;
     }
-    const term = query.trim().toLowerCase();
-    if (term) {
-      const haystack = [
-        student.name,
-        student.loginRollNumber,
-        student.classRollNumber,
-        student.className,
-        student.sectionName,
-      ]
-        .map((value) => String(value || '').toLowerCase())
-        .join(' ');
-      if (!haystack.includes(term)) return false;
-    }
     return true;
   });
 
-  const filtering = Boolean(filterClassId || filterSectionId || query.trim());
+  const filtering = Boolean(filterClassId || filterSectionId || deferredQuery.trim());
 
   function clearFilters() {
     setFilterClassId('');
@@ -261,6 +264,16 @@ export default function Students() {
     }
   }
 
+  async function removeStudent(student: any) {
+    if (!await confirm({ title: `Remove ${student.name}?`, body: 'The student login and institution records will be removed. This cannot be undone.', confirmLabel: 'Remove student', tone: 'danger' })) return;
+    try {
+      await api.delete(`/institution/students/${student.id}`);
+      setStudents((current) => current.filter((item) => item.id !== student.id));
+      if (showProfile?.id === student.id) setShowProfile(null);
+      toast.success('Student removed');
+    } catch (error: any) { toast.error('Could not remove student', error.message); }
+  }
+
   useEffect(() => {
     if (!showProfile?.id || profileTab !== 'activity') return;
 
@@ -270,15 +283,21 @@ export default function Students() {
       setActivityError('');
       try {
         const monthParam = encodeURIComponent(activityMonth);
-        const [attendanceRes, marksRes, batchRes] = await Promise.all([
+        const [attendanceRes, marksRes, batchRes, submissionsRes, feesRes, analyticsRes] = await Promise.all([
           api.get(`/institution/students/${showProfile.id}/history?section=attendance&month=${monthParam}`).catch(() => ({ attendance: [] })),
           api.get(`/institution/students/${showProfile.id}/history?section=marks&month=${monthParam}`).catch(() => ({ marks: [] })),
           api.get(`/institution/students/${showProfile.id}/history?section=batchExams&month=${monthParam}`).catch(() => ({ batchExams: [] })),
+          api.get(`/institution/students/${showProfile.id}/history?section=submissions&month=${monthParam}`).catch(() => ({ submissions: [] })),
+          api.get(`/institution/students/${showProfile.id}/history?section=fees&month=${monthParam}`).catch(() => ({ feeAccount: null })),
+          api.get(`/institution/students/${showProfile.id}/history?section=analytics&month=${monthParam}`).catch(() => ({ analytics: null })),
         ]);
         if (cancelled) return;
         setAttendanceRows(attendanceRes?.attendance || []);
         setMarksRows(marksRes?.marks || []);
         setBatchExamRows(batchRes?.batchExams || []);
+        setSubmissionRows(submissionsRes?.submissions || []);
+        setFeeAccount(feesRes?.feeAccount || null);
+        setAnalytics(analyticsRes?.analytics || null);
       } catch (err: any) {
         if (!cancelled) setActivityError(err.message || 'Failed to load student activity');
       } finally {
@@ -318,6 +337,7 @@ export default function Students() {
         title="Students"
         subtitle={`The register for ${scopeLabel}. Open a student to see their attendance, marks and promotion history.`}
       >
+        <ProfileRequestsPanel kind="student" />
         <label className="search-field">
           <Search aria-hidden="true" />
           <input
@@ -463,6 +483,7 @@ export default function Students() {
                             >
                               <Eye />
                             </button>
+                            <button type="button" className="icon-btn" title="Remove student" aria-label={`Remove ${student.name}`} onClick={() => void removeStudent(student)}><Trash2 /></button>
                           </div>
                         </td>
                       </tr>
@@ -849,6 +870,11 @@ export default function Students() {
                             </div>
                           )}
                         </div>
+                        <div className="card"><div className="card-head"><div className="card-head-copy"><h3 className="card-title">Assignment submissions</h3><p className="card-sub">{submissionRows.length} submitted this month</p></div></div>{submissionRows.length === 0 ? <p className="card-pad" style={{ color: 'var(--ink-3)', fontSize: '0.8125rem' }}>No assignment submissions this month.</p> : <div>{submissionRows.map((row) => <div className="list-row" key={row.id}><span className="cell-stack"><b>{row.assignmentTitle}</b><span>{row.createdAt ? new Date(row.createdAt).toLocaleString('en-PK') : ''}</span></span></div>)}</div>}</div>
+
+                        <div className="card"><div className="card-head"><div className="card-head-copy"><h3 className="card-title">Fee account</h3><p className="card-sub">Monthly challan and payment status</p></div></div>{!feeAccount ? <p className="card-pad" style={{ color: 'var(--ink-3)', fontSize: '0.8125rem' }}>No challan was issued this month.</p> : <div className="card-pad form-grid"><div className="grid-cards"><div className="secret"><span className="secret-label">Status</span><b>{feeAccount.invoice.status}</b></div><div className="secret"><span className="secret-label">Total</span><b>PKR {Number(feeAccount.invoice.totalAmount).toLocaleString('en-PK')}</b></div><div className="secret"><span className="secret-label">Paid</span><b>PKR {Number(feeAccount.invoice.paidAmount).toLocaleString('en-PK')}</b></div></div><p className="field-hint">{feeAccount.payments?.length || 0} verified receipt(s) · {feeAccount.submissions?.length || 0} submitted proof(s)</p></div>}</div>
+
+                        <div className="card"><div className="card-head"><div className="card-head-copy"><h3 className="card-title">Monthly analytics</h3><p className="card-sub">A quick activity summary</p></div></div><div className="card-pad grid-cards"><div className="secret"><span className="secret-label">Attendance records</span><b>{analytics?.attendances?.length || 0}</b></div><div className="secret"><span className="secret-label">Marked tests</span><b>{analytics?.marks?.length || 0}</b></div><div className="secret"><span className="secret-label">Submissions</span><b>{analytics?.submissions?.length || 0}</b></div></div></div>
                       </div>
                     )}
                   </div>

@@ -2,14 +2,56 @@ export const API_ORIGIN = window.electronAPI?.config?.apiOrigin || 'https://nisa
 export const BASE_URL = window.electronAPI?.config?.apiBaseUrl || `${API_ORIGIN}/api`;
 
 export const getAuthToken = () => localStorage.getItem('nisaab_token');
+export const getRefreshToken = () => localStorage.getItem('nisaab_refresh_token');
 export const setAuthToken = (token: string) => localStorage.setItem('nisaab_token', token);
-export const removeAuthToken = () => localStorage.removeItem('nisaab_token');
+export const setAuthTokens = (accessToken: string, refreshToken: string) => {
+  localStorage.setItem('nisaab_token', accessToken);
+  localStorage.setItem('nisaab_refresh_token', refreshToken);
+};
+export const removeAuthToken = () => {
+  localStorage.removeItem('nisaab_token');
+  localStorage.removeItem('nisaab_refresh_token');
+};
+
+let refreshInFlight: Promise<string> | null = null;
+
+async function refreshAccessToken() {
+  if (refreshInFlight) return refreshInFlight;
+  refreshInFlight = (async () => {
+    const refreshToken = getRefreshToken();
+    if (!refreshToken) throw new Error('Session expired');
+    const response = await fetch(`${BASE_URL}/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken }),
+    });
+    if (!response.ok) throw new Error('Session expired');
+    const data = await response.json();
+    if (!data.accessToken || !data.refreshToken) throw new Error('Session expired');
+    setAuthTokens(data.accessToken, data.refreshToken);
+    await window.electronAPI?.auth?.setToken?.(data.accessToken);
+    return data.accessToken as string;
+  })();
+  try {
+    return await refreshInFlight;
+  } finally {
+    refreshInFlight = null;
+  }
+}
+
+function expireSession() {
+  removeAuthToken();
+  window.electronAPI?.auth?.clearToken?.();
+  window.dispatchEvent(new Event('auth-changed'));
+  window.location.hash = '#/login';
+}
 
 type ResponseType = 'json' | 'blob' | 'text';
 
 type RequestOptions = {
   headers?: Record<string, string>;
   responseType?: ResponseType;
+  signal?: AbortSignal;
 };
 
 function isFormData(value: unknown): value is FormData {
@@ -18,6 +60,25 @@ function isFormData(value: unknown): value is FormData {
 
 function hasElectronBridge() {
   return typeof window !== 'undefined' && Boolean(window.electronAPI?.data?.request);
+}
+
+// These modules depend on current server state and must never be satisfied by
+// the offline SQLite cache or queued as optimistic generic writes.
+function requiresLiveServer(endpoint: string) {
+  return endpoint.startsWith('/course-streaming')
+    || endpoint.startsWith('/institution/courses')
+    || /^\/institution\/(students|staff)\/\d+/.test(endpoint)
+    || endpoint.startsWith('/institution/public-site')
+    || endpoint.startsWith('/institution/admissions')
+    || endpoint.startsWith('/institution/fees')
+    || endpoint.startsWith('/institution/academics')
+    || endpoint.startsWith('/institution/staff-profile-requests')
+    || endpoint.startsWith('/institution/student-profile-requests')
+    || endpoint.startsWith('/institution/logo')
+    || endpoint.startsWith('/institution/signature')
+    || endpoint.startsWith('/institution/settings/google-drive')
+    || endpoint.startsWith('/institution/settings/payment-gateway')
+    || endpoint.startsWith('/upload/');
 }
 
 async function parseResponse(response: Response, responseType: ResponseType) {
@@ -46,6 +107,7 @@ async function remoteRequest(method: string, endpoint: string, data?: unknown, o
   const config: RequestInit = {
     method,
     headers,
+    signal: options.signal,
   };
 
   if (data !== undefined) {
@@ -57,12 +119,21 @@ async function remoteRequest(method: string, endpoint: string, data?: unknown, o
     }
   }
 
-  const response = await fetch(`${BASE_URL}${endpoint}`, config);
+  let response = await fetch(`${BASE_URL}${endpoint}`, config);
+
+  if (response.status === 401 && endpoint !== '/auth/login' && endpoint !== '/auth/refresh') {
+    try {
+      const nextAccessToken = await refreshAccessToken();
+      headers.set('Authorization', `Bearer ${nextAccessToken}`);
+      response = await fetch(`${BASE_URL}${endpoint}`, config);
+    } catch {
+      expireSession();
+      throw new Error('Session expired. Please sign in again.');
+    }
+  }
 
   if (response.status === 401) {
-    removeAuthToken();
-    window.electronAPI?.auth?.clearToken?.();
-    window.location.hash = '#/login';
+    expireSession();
     throw new Error('Unauthorized');
   }
 
@@ -90,7 +161,7 @@ export const api = {
   },
 
   async request(method: string, endpoint: string, data?: unknown, options: RequestOptions = {}) {
-    if (hasElectronBridge() && options.responseType !== 'blob') {
+    if (hasElectronBridge() && options.responseType !== 'blob' && !requiresLiveServer(endpoint)) {
       try {
         const result = await window.electronAPI!.data.request(method, endpoint, data, getAuthToken());
         if (method.toUpperCase() === 'POST' && endpoint === '/auth/login') {
@@ -99,8 +170,12 @@ export const api = {
         return result;
       } catch (error: any) {
         if (error?.message?.includes('Unauthorized')) {
-          removeAuthToken();
-          window.location.hash = '#/login';
+          try {
+            const nextAccessToken = await refreshAccessToken();
+            return await window.electronAPI!.data.request(method, endpoint, data, nextAccessToken);
+          } catch {
+            expireSession();
+          }
         }
         throw error;
       }

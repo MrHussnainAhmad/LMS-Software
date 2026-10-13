@@ -5,6 +5,7 @@ import { api, getSyncStatus } from '../utils/api';
 import productLogo from '../../icon.png';
 import CommandPalette, { type NavTarget } from '../ui/CommandPalette';
 import Modal from '../ui/Modal';
+import SyncLoader from '../ui/SyncLoader';
 import {
   LayoutDashboard,
   Building2,
@@ -28,23 +29,34 @@ import {
   PanelLeft,
   ShieldCheck,
   Award,
+  ClipboardList,
+  WalletCards,
+  LibraryBig,
+  Calendar,
+  Ticket,
 } from 'lucide-react';
 
 const NAV_ITEMS: NavTarget[] = [
   { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard, group: 'Workspace' },
   { name: 'Admins', path: '/admin', icon: ShieldCheck, group: 'Institution' },
   { name: 'Campuses', path: '/campuses', icon: Building2, group: 'Institution' },
+  { name: 'Academics', path: '/academics', icon: LibraryBig, group: 'Institution' },
+  { name: 'Courses', path: '/courses', icon: BookOpen, group: 'Institution' },
   { name: 'Staff', path: '/staff', icon: Users, group: 'Institution' },
   { name: 'Students', path: '/students', icon: GraduationCap, group: 'Institution' },
+  { name: 'Auto Promotion', path: '/promotion', icon: ArrowUpCircle, group: 'Institution' },
+  { name: 'ID Cards', path: '/id-card', icon: IdCard, group: 'Institution' },
+  { name: 'Admissions', path: '/admissions', icon: ClipboardList, group: 'Institution' },
+  { name: 'Fees', path: '/fees', icon: WalletCards, group: 'Institution' },
   { name: 'Daily Diary', path: '/diary', icon: BookOpen, group: 'Academics' },
   { name: 'Attendance', path: '/attendance', icon: ClipboardCheck, group: 'Academics' },
   { name: 'Exams', path: '/exams', icon: FileText, group: 'Academics' },
   { name: 'Results', path: '/results', icon: Award, group: 'Academics' },
-  { name: 'Auto Promotion', path: '/promotion', icon: ArrowUpCircle, group: 'Academics' },
-  { name: 'ID Cards', path: '/id-card', icon: IdCard, group: 'Operations' },
   { name: 'Leaves', path: '/leaves', icon: CalendarOff, group: 'Operations' },
   { name: 'Timetable', path: '/timetable', icon: CalendarDays, group: 'Operations' },
   { name: 'Announcements', path: '/announcements', icon: Megaphone, group: 'Operations' },
+  { name: 'Holidays', path: '/holidays', icon: Calendar, group: 'Operations' },
+  { name: 'Public Events', path: '/public-events', icon: Ticket, group: 'Operations' },
   { name: 'Helpdesk', path: '/helpdesk', icon: LifeBuoy, group: 'Operations' },
   { name: 'Settings', path: '/settings', icon: Settings, group: 'Operations' },
 ];
@@ -55,8 +67,12 @@ const NAV_GROUPS = ['Workspace', 'Institution', 'Academics', 'Operations'];
 const JUMP_KEYS: Record<string, string> = {
   d: '/dashboard',
   c: '/campuses',
+  b: '/academics',
+  o: '/courses',
   f: '/staff',
   s: '/students',
+  m: '/admissions',
+  v: '/fees',
   y: '/diary',
   a: '/attendance',
   e: '/exams',
@@ -66,6 +82,8 @@ const JUMP_KEYS: Record<string, string> = {
   l: '/leaves',
   t: '/timetable',
   n: '/announcements',
+  w: '/holidays',
+  u: '/public-events',
   h: '/helpdesk',
   ',': '/settings',
 };
@@ -88,9 +106,35 @@ export default function DashboardLayout() {
     null,
   );
   const [railOpen, setRailOpen] = useState(false);
+  const [admissionAttentionCount, setAdmissionAttentionCount] = useState(0);
   const campusButtonRef = useRef<HTMLButtonElement>(null);
   const campusMenuRef = useRef<HTMLDivElement>(null);
   const jumpArmedAt = useRef(0);
+  const [overlayState, setOverlayState] = useState<'none' | 'startup' | 'onboarding' | 'manual'>('none');
+  const [onboardingStep, setOnboardingStep] = useState(1);
+
+  useEffect(() => {
+    let active = true;
+    async function refreshAdmissionAttention() {
+      try {
+        const result = await api.get('/institution/admissions/attention-count');
+        if (active) setAdmissionAttentionCount(Number(result?.count || 0));
+      } catch {
+        if (active) setAdmissionAttentionCount(0);
+      }
+    }
+    void refreshAdmissionAttention();
+    const timer = window.setInterval(refreshAdmissionAttention, 60_000);
+    const refresh = () => { void refreshAdmissionAttention(); };
+    window.addEventListener('focus', refresh);
+    window.addEventListener('admissions:updated', refresh);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      window.removeEventListener('focus', refresh);
+      window.removeEventListener('admissions:updated', refresh);
+    };
+  }, []);
 
   useEffect(() => {
     async function fetchCampuses() {
@@ -118,7 +162,7 @@ export default function DashboardLayout() {
       if (active) setSyncStatus(status);
     }
     refreshSyncStatus();
-    const timer = setInterval(refreshSyncStatus, 2000);
+    const timer = setInterval(refreshSyncStatus, 10_000);
     const handleOnline = () => setBrowserOnline(true);
     const handleOffline = () => setBrowserOnline(false);
     window.addEventListener('online', handleOnline);
@@ -134,18 +178,29 @@ export default function DashboardLayout() {
   const effectiveOnline = Boolean(syncStatus?.online) && browserOnline;
 
   useEffect(() => {
-    async function ensureSynced() {
-      if (!window.electronAPI?.sync?.pull) return;
-      const status = await getSyncStatus();
-      if (!status?.lastFullPullAt) {
+    async function performStartupSync() {
+      const isOnboarded = localStorage.getItem('nisaab_onboarded');
+      
+      if (!isOnboarded) {
+        setOverlayState('onboarding');
         try {
-          await window.electronAPI.sync.pull();
-        } catch (err) {
-          console.error('Background sync failed:', err);
-        }
+           if (window.electronAPI?.sync?.pull) await window.electronAPI.sync.pull();
+        } catch (e) {}
+      } else {
+        setOverlayState('startup');
+        try {
+           if (window.electronAPI?.sync?.pull) {
+             const p = window.electronAPI.sync.pull();
+             const timer = new Promise(r => setTimeout(r, 2000));
+             await Promise.all([p, timer]);
+           } else {
+             await new Promise(r => setTimeout(r, 2000));
+           }
+        } catch (e) {}
+        setOverlayState('none');
       }
     }
-    ensureSynced();
+    performStartupSync();
   }, []);
 
   useEffect(() => {
@@ -241,8 +296,15 @@ export default function DashboardLayout() {
     setCampusQuery('');
   }
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    const refreshToken = localStorage.getItem('nisaab_refresh_token');
+    try {
+      await api.post('/auth/logout', { refreshToken });
+    } catch {
+      // Local sign-out must still complete while offline.
+    }
     localStorage.removeItem('nisaab_token');
+    localStorage.removeItem('nisaab_refresh_token');
     window.electronAPI?.auth?.clearToken?.();
     window.dispatchEvent(new Event('auth-changed'));
     navigate('/login');
@@ -290,6 +352,7 @@ export default function DashboardLayout() {
                   >
                     <Icon />
                     <span>{item.name}</span>
+                    {item.path === '/admissions' && admissionAttentionCount > 0 && <span className="rail-badge" aria-label={`${admissionAttentionCount} new admission applications`}>{admissionAttentionCount > 99 ? '99+' : admissionAttentionCount}</span>}
                   </NavLink>
                 );
               })}
@@ -344,20 +407,37 @@ export default function DashboardLayout() {
 
           <div className="topbar-actions">
             {syncStatus && (
-              <span
+              <button
+                type="button"
                 className={`sync-tag ${effectiveOnline ? 'is-live' : 'is-offline'}`}
+                style={{ cursor: 'pointer', border: 'none', background: 'transparent' }}
                 title={
                   effectiveOnline
-                    ? 'Connected — changes sync in the background'
+                    ? 'Connected. Click to force sync.'
                     : 'Offline — changes are queued and will sync automatically'
                 }
+                onClick={async () => {
+                  if (!effectiveOnline) return;
+                  setOverlayState('manual');
+                  try {
+                    const p = window.electronAPI?.sync?.pull?.();
+                    const timer = new Promise(r => setTimeout(r, 3000));
+                    await Promise.all([p, timer]);
+                    const st = await getSyncStatus();
+                    setSyncStatus(st);
+                    window.location.reload();
+                  } catch (e) {
+                    console.error('Manual sync failed', e);
+                    setOverlayState('none');
+                  }
+                }}
               >
                 <i aria-hidden="true" />
                 <span>
-                  {effectiveOnline ? 'Online' : 'Offline'}
+                  {effectiveOnline ? 'Online (Click to sync)' : 'Offline'}
                   {pendingCount > 0 ? ` · ${pendingCount} queued` : ''}
                 </span>
-              </span>
+              </button>
             )}
 
             <button type="button" className="cmd-trigger" onClick={() => setShowSearch(true)}>
@@ -539,6 +619,74 @@ export default function DashboardLayout() {
           </section>
         </div>
       </Modal>
+
+      {overlayState !== 'none' && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 9999,
+          background: overlayState === 'onboarding' ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.9)',
+          backdropFilter: 'blur(4px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center'
+        }}>
+          {overlayState === 'onboarding' && (
+            <div className="card stack" style={{ maxWidth: 500, padding: 32, gap: 24, textAlign: 'center', background: '#fff', borderRadius: 16 }}>
+              <div>
+                 <div style={{ display: 'inline-flex', padding: 16, background: 'var(--brand-50)', borderRadius: '50%', color: 'var(--brand-600)', marginBottom: 16 }}>
+                    <LayoutDashboard size={40} />
+                 </div>
+                 <h2 style={{ fontSize: '1.5rem', fontWeight: 700, margin: '0 0 8px' }}>Welcome to Nisaab360</h2>
+                 <p style={{ color: 'var(--ink-3)', fontSize: '0.9375rem', lineHeight: 1.5 }}>
+                   Your local workspace is ready. Let's get you set up.
+                 </p>
+              </div>
+              <div className="stack" style={{ gap: 16, textAlign: 'left', minHeight: 120, justifyContent: 'center' }}>
+                {onboardingStep === 1 && (
+                  <div className="row" style={{ gap: 16, alignItems: 'center' }}>
+                     <div style={{ padding: 12, background: 'var(--stone-100)', borderRadius: 12, color: 'var(--brand-600)' }}><Building2 size={32} /></div>
+                     <div>
+                       <b style={{ display: 'block', color: 'var(--ink-1)', fontSize: '1.125rem', marginBottom: 4 }}>1. Set up your campus</b>
+                       <span style={{ fontSize: '0.9375rem', color: 'var(--ink-3)', lineHeight: 1.4, display: 'block' }}>Add your classrooms, subjects, and grading rules in Settings.</span>
+                     </div>
+                  </div>
+                )}
+                {onboardingStep === 2 && (
+                  <div className="row" style={{ gap: 16, alignItems: 'center' }}>
+                     <div style={{ padding: 12, background: 'var(--stone-100)', borderRadius: 12, color: 'var(--brand-600)' }}><Users size={32} /></div>
+                     <div>
+                       <b style={{ display: 'block', color: 'var(--ink-1)', fontSize: '1.125rem', marginBottom: 4 }}>2. Import staff & students</b>
+                       <span style={{ fontSize: '0.9375rem', color: 'var(--ink-3)', lineHeight: 1.4, display: 'block' }}>Bring your people on board to start managing attendance and exams.</span>
+                     </div>
+                  </div>
+                )}
+                {onboardingStep === 3 && (
+                  <div className="row" style={{ gap: 16, alignItems: 'center' }}>
+                     <div style={{ padding: 12, background: 'var(--stone-100)', borderRadius: 12, color: 'var(--brand-600)' }}><CalendarDays size={32} /></div>
+                     <div>
+                       <b style={{ display: 'block', color: 'var(--ink-1)', fontSize: '1.125rem', marginBottom: 4 }}>3. Build the timetable</b>
+                       <span style={{ fontSize: '0.9375rem', color: 'var(--ink-3)', lineHeight: 1.4, display: 'block' }}>Assign teachers to periods and keep everyone in sync automatically.</span>
+                     </div>
+                  </div>
+                )}
+              </div>
+              <div className="row" style={{ gap: 8, justifyContent: 'center', marginBottom: 8 }}>
+                {[1, 2, 3].map(step => (
+                   <div key={step} style={{ width: 8, height: 8, borderRadius: '50%', background: onboardingStep === step ? 'var(--brand-500)' : 'var(--stone-200)' }} />
+                ))}
+              </div>
+              <button className="btn btn-primary btn-block" style={{ marginTop: 8 }} onClick={() => {
+                if (onboardingStep < 3) {
+                  setOnboardingStep(s => s + 1);
+                } else {
+                  localStorage.setItem('nisaab_onboarded', '1');
+                  setOverlayState('none');
+                }
+              }}>
+                {onboardingStep < 3 ? 'Next' : 'Get Started'}
+              </button>
+            </div>
+          )}
+          {(overlayState === 'startup' || overlayState === 'manual') && <SyncLoader />}
+        </div>
+      )}
     </div>
   );
 }

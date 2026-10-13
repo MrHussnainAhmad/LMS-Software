@@ -233,8 +233,13 @@ async function pullAll(token) {
       ['GET', '/institution/dashboard', 'dashboard'],
       ['GET', '/institution/dashboard/charts', 'charts'],
       ['GET', '/institution/settings', 'settings'],
+      ['GET', '/institution/settings/google-drive', 'google-drive'],
+      ['GET', '/institution/settings/google-drive/connect', 'google-drive-connect'],
+      ['GET', '/institution/settings/payment-gateway', 'payment-gateway'],
+      ['GET', '/course-streaming', 'course-streaming'],
       ['GET', '/institution/batch-exams', 'batch-exams'],
       ['GET', '/institution/timetable?metadata=true', 'timetable-meta'],
+      ['GET', '/institution/timetable', 'timetable'],
       ['GET', '/institution/roles', 'roles'],
       ['GET', '/institution/admins', 'admins'],
       ['GET', `/institution/staff-attendance?date=${today}`, 'staff-attendance'],
@@ -337,8 +342,37 @@ async function pullAll(token) {
   }
 }
 
+async function pullStudents(token) {
+  const studentsRes = await remoteRequest('GET', '/institution/students/picker?limit=100', undefined, token);
+  const students = studentsRes?.students || [];
+  const idCardsRes = await fetchIdCardRows(token, students);
+  const pickerById = new Map(students.map((row) => [Number(row?.id), row]));
+  const detailedRows = Array.isArray(idCardsRes?.students) ? idCardsRes.students : [];
+
+  const tx = getDb().transaction(() => {
+    for (const row of students) upsertStudent(row);
+    for (const row of detailedRows) {
+      const base = pickerById.get(Number(row?.id)) || {};
+      upsertStudent({ ...base, ...row });
+    }
+    setCache('GET:/institution/students/picker?limit=100', studentsRes, null);
+    if (detailedRows.length > 0) {
+      setCache('GET:/institution/students/id-cards', {
+        institution: idCardsRes?.institution || {},
+        students: detailedRows,
+      }, null);
+    }
+    updateTableSyncState('students', students.length, ENTITY_FINGERPRINTS.students);
+  });
+  tx();
+  setMeta('last_students_pull_at', new Date().toISOString());
+  logSync('pull', 'success', 'Student register refreshed', { students: students.length });
+  return { success: true, students: students.length };
+}
+
 module.exports = {
   pullAll,
+  pullStudents,
   setCache,
   upsertStudent,
   upsertStaff,

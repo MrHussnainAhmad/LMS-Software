@@ -21,6 +21,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     pull(token) {
       return ipcRenderer.invoke('sync:pull', token);
     },
+    students(token) {
+      return ipcRenderer.invoke('sync:students', token);
+    },
     push() {
       return ipcRenderer.invoke('sync:push');
     },

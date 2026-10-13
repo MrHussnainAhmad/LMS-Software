@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Ticket, Clock, CheckCircle2, AlertCircle, Send, PlayCircle } from 'lucide-react';
 import { api } from '../utils/api';
 import PageSkeleton from '../components/PageSkeleton';
@@ -40,11 +40,7 @@ export default function HelpDesk() {
   const [filter, setFilter] = useState('open');
   const [busy, setBusy] = useState<number | null>(null);
 
-  useEffect(() => {
-    fetchTickets();
-  }, [filter]);
-
-  async function fetchTickets() {
+  const fetchTickets = useCallback(async () => {
     setLoading(true);
     try {
       const backendFilter = filter === 'open' ? 'active' : filter;
@@ -55,13 +51,17 @@ export default function HelpDesk() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [filter]);
+
+  useEffect(() => {
+    void fetchTickets();
+  }, [fetchTickets]);
 
   async function handleAction(ticketId: number, action: 'updateStatus' | 'forward', status?: 'WORKING' | 'RESOLVED') {
     setBusy(ticketId);
     try {
       await api.post('/institution/tickets', { ticketId, action, status });
-      fetchTickets(); // Refresh
+      void fetchTickets(); // Refresh
       if (status === 'RESOLVED') toast.success('Ticket resolved', 'The person who raised it has been notified.');
       else if (status === 'WORKING') toast.info('Marked as in progress');
     } catch (err: any) {

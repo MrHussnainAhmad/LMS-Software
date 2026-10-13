@@ -11,7 +11,7 @@ type ModalProps = {
   children: ReactNode;
   footer?: ReactNode;
   /** Wraps the body + footer in a <form> so Enter submits, like a native dialog. */
-  onSubmit?: (event: React.FormEvent) => void;
+  onSubmit?: (event: React.FormEvent<HTMLFormElement>) => void;
   scrollBody?: boolean;
 };
 

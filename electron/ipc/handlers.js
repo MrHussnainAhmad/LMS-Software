@@ -4,7 +4,7 @@ const { handleDataRequest } = require('../data/router');
 const { runInitialSync, runPushCycle, getSyncStatus } = require('../sync/engine');
 const { getRecentLogs } = require('../sync/logger');
 const { remoteRequest } = require('../sync/remote');
-const { pullAll } = require('../sync/pull');
+const { pullAll, pullStudents } = require('../sync/pull');
 const { checkConnectivity } = require('../sync/connectivity');
 const { API_ORIGIN, API_BASE_URL } = require('../config');
 
@@ -34,6 +34,11 @@ function registerIpcHandlers() {
   ipcMain.handle('sync:pull', async (_event, token) => {
     const authToken = token || getMeta('auth_token');
     return pullAll(authToken);
+  });
+
+  ipcMain.handle('sync:students', async (_event, token) => {
+    const authToken = token || getMeta('auth_token');
+    return pullStudents(authToken);
   });
 
   ipcMain.handle('sync:push', async () => {

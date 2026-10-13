@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import {
   createContext,
   useCallback,
@@ -28,6 +29,7 @@ type Toast = {
 type ConfirmRequest = {
   title: string;
   body?: string;
+  description?: string;
   confirmLabel?: string;
   cancelLabel?: string;
   tone?: 'danger' | 'default';
@@ -168,7 +170,7 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
                   <h2 className="modal-title" id="confirm-title">
                     {pending.title}
                   </h2>
-                  {pending.body && <p className="modal-sub">{pending.body}</p>}
+                  {(pending.body || pending.description) && <p className="modal-sub">{pending.body || pending.description}</p>}
                 </div>
                 <div className="modal-foot">
                   <button type="button" className="btn btn-ghost" onClick={() => settle(false)}>

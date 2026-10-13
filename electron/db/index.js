@@ -24,6 +24,9 @@ function deleteDbFiles(basePath) {
 function openAndInitDb(filePath) {
   const instance = new Database(filePath);
   instance.pragma('journal_mode = WAL');
+  instance.pragma('synchronous = NORMAL'); // Drastically cuts CPU & Disk blocking in WAL mode
+  instance.pragma('mmap_size = 134217728'); // 128MB mmap to avoid JS buffer allocation overhead
+  instance.pragma('cache_size = -16000'); // 16MB cache
   instance.pragma('foreign_keys = ON');
   for (const statement of CREATE_STATEMENTS) {
     instance.exec(statement);

@@ -20,11 +20,38 @@ dist-electron/
 !.env.example
 !.env.*.example
 
+# Local assistant settings and cloud credentials
+.claude/
+.codex/
+.agents/
+.aws/
+.npmrc
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Local application databases and backups
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite-journal
+*.sqlite-shm
+*.sqlite-wal
+*.sqlite3
+*.sqlite3-journal
+*.sqlite3-shm
+*.sqlite3-wal
+backups/
+
 # Tool caches and test output
 .cache/
 .vite/
 coverage/
 .nyc_output/
+*.tsbuildinfo
 
 # Electron packaging output
 release/

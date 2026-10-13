@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Building2,
-  CreditCard,
   Lock,
   Download,
   AlertTriangle,
@@ -12,12 +12,18 @@ import {
   Plus,
   Copy,
   ShieldAlert,
+  Globe2,
+  ArrowRight,
 } from 'lucide-react';
 import { api, API_ORIGIN, BASE_URL, getAuthToken } from '../utils/api';
 import PageSkeleton from '../components/PageSkeleton';
 import Modal from '../ui/Modal';
 import { PageHead } from '../ui/Bits';
 import { useConfirm, useToast } from '../ui/Feedback';
+import { IMAGE_FILE_ACCEPT, prepareImageUpload } from '../utils/upload-file';
+import CourseStreamingSettings from '../components/CourseStreamingSettings';
+import GoogleDriveBackupSettings from '../components/GoogleDriveBackupSettings';
+import PaymentGatewaySettings from '../components/PaymentGatewaySettings';
 
 interface Profile {
   name: string;
@@ -31,10 +37,6 @@ interface Profile {
   country: string;
   logoKey?: string;
   signatureKey?: string;
-  acceptFeeVouchers: boolean;
-  feeVoucherOpenDay: number | null;
-  feeVoucherLateDay: number | null;
-  feeVoucherLateFee: number | null;
   allowGraduatedStudentAccess: boolean;
 }
 
@@ -54,6 +56,7 @@ function normalizeImageUrl(value?: string | null) {
 }
 
 export default function Settings() {
+  const navigate = useNavigate();
   const toast = useToast();
   const confirm = useConfirm();
 
@@ -61,9 +64,7 @@ export default function Settings() {
   const [loading, setLoading] = useState(true);
 
   // Settings States
-  const [feeForm, setFeeForm] = useState({ acceptFeeVouchers: false, openDay: 1, lateDay: 10, lateFee: 500 });
   const [gradAccess, setGradAccess] = useState(false);
-  const [savingFee, setSavingFee] = useState(false);
   const [savingGrad, setSavingGrad] = useState(false);
 
   // Grading States
@@ -81,8 +82,8 @@ export default function Settings() {
   // Roles States
   const [roles, setRoles] = useState<Role[]>([]);
   // Upload States
-  const [uploadingLogo] = useState(false);
-  const [uploadingSignature] = useState(false);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [uploadingSignature, setUploadingSignature] = useState(false);
 
   // Staff roles UI state
   const PERMISSIONS = [
@@ -107,9 +108,31 @@ export default function Settings() {
   const [deleting, setDeleting] = useState(false);
 
   async function handleFileUpload(file: File, type: 'logo' | 'signature') {
-    void file;
-    void type;
-    toast.info('Not available here yet', 'Logo and signature uploads are handled on the web panel for now.');
+    const setUploading = type === 'logo' ? setUploadingLogo : setUploadingSignature;
+    setUploading(true);
+    try {
+      const preparedFile = await prepareImageUpload(file, 2 * 1024 * 1024);
+      const signature = await api.post('/upload/signature');
+      const form = new FormData();
+      form.append('file', preparedFile);
+      form.append('api_key', signature.apiKey);
+      form.append('timestamp', String(signature.timestamp));
+      form.append('signature', signature.signature);
+      if (!signature.folder) throw new Error('Upload folder is missing from the server response');
+      form.append('folder', signature.folder);
+      form.append('allowed_formats', signature.allowedFormats);
+      const response = await fetch(`https://api.cloudinary.com/v1_1/${signature.cloudName}/image/upload`, { method: 'POST', body: form });
+      const uploaded = await response.json();
+      if (!response.ok || !uploaded.public_id) throw new Error(uploaded.error?.message || 'Cloudinary rejected the image');
+      await api.post('/upload/complete', { publicId: uploaded.public_id, resourceType: uploaded.resource_type, imageOnly: true });
+      await api.patch(`/institution/${type}`, { publicId: uploaded.public_id });
+      setProfile((current) => current ? { ...current, [type === 'logo' ? 'logoKey' : 'signatureKey']: uploaded.secure_url } : current);
+      toast.success(type === 'logo' ? 'Institution logo updated' : 'Principal signature updated');
+    } catch (error: any) {
+      toast.error(`Could not upload ${type}`, error.message);
+    } finally {
+      setUploading(false);
+    }
   }
 
   async function handleExport() {
@@ -183,12 +206,6 @@ export default function Settings() {
 
       if (res.profile) {
         setProfile(res.profile);
-        setFeeForm({
-          acceptFeeVouchers: res.profile.acceptFeeVouchers,
-          openDay: res.profile.feeVoucherOpenDay || 1,
-          lateDay: res.profile.feeVoucherLateDay || 10,
-          lateFee: res.profile.feeVoucherLateFee || 500
-        });
         setGradAccess(res.profile.allowGraduatedStudentAccess);
       }
       if (gradingRes.scale) {
@@ -203,18 +220,6 @@ export default function Settings() {
     } finally {
       setLoading(false);
     }
-  }
-
-  async function handleSaveFee(e: React.FormEvent) {
-    e.preventDefault();
-    setSavingFee(true);
-    try {
-      await api.post('/institution/settings', { action: 'updateFeeVouchers', ...feeForm });
-      toast.success('Finance settings saved', feeForm.acceptFeeVouchers
-        ? `Vouchers issue on day ${feeForm.openDay}, late after day ${feeForm.lateDay}.`
-        : 'Automated vouchers are switched off.');
-    } catch (err: any) { toast.error('Could not save finance settings', err.message || 'Failed to update fee settings'); }
-    finally { setSavingFee(false); }
   }
 
   async function handleToggleGradAccess(checked: boolean) {
@@ -278,6 +283,8 @@ export default function Settings() {
     }
   }
 
+
+
   if (loading) {
     return (
       <div className="page">
@@ -292,6 +299,19 @@ export default function Settings() {
         title="Settings"
         subtitle="Your institution profile, fees, grading, staff roles and the things you only touch once."
       />
+
+      <section className="card card-hover" role="button" tabIndex={0} onClick={() => navigate('/settings/public-website')} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') navigate('/settings/public-website'); }} style={{ cursor: 'pointer' }}>
+        <div className="card-pad row-between" style={{ gap: 18 }}>
+          <div className="row" style={{ gap: 14 }}>
+            <span className="metric-icon" style={{ width: 42, height: 42 }}><Globe2 /></span>
+            <span className="cell-stack"><b>Public website</b><span>Edit the institution homepage, programs, photographs, contact details, and public links.</span></span>
+          </div>
+          <ArrowRight style={{ width: 18, color: 'var(--ink-3)', flexShrink: 0 }} />
+        </div>
+      </section>
+
+      <PaymentGatewaySettings />
+      <CourseStreamingSettings />
 
       <div className="cols-2">
         {/* ---------------------------------------------------------------- */}
@@ -335,7 +355,7 @@ export default function Settings() {
                     )}
                     <input
                       type="file"
-                      accept="image/*"
+                      accept={IMAGE_FILE_ACCEPT}
                       style={{ display: 'none' }}
                       onChange={e => e.target.files?.[0] && handleFileUpload(e.target.files[0], 'logo')}
                       disabled={uploadingLogo}
@@ -398,7 +418,7 @@ export default function Settings() {
                     )}
                     <input
                       type="file"
-                      accept="image/*"
+                      accept={IMAGE_FILE_ACCEPT}
                       style={{ display: 'none' }}
                       onChange={e => e.target.files?.[0] && handleFileUpload(e.target.files[0], 'signature')}
                       disabled={uploadingSignature}
@@ -407,71 +427,6 @@ export default function Settings() {
                 </div>
               </div>
             )}
-          </section>
-
-          <section className="card">
-            <div className="card-head">
-              <div className="card-head-copy">
-                <h2 className="card-title">
-                  <CreditCard aria-hidden="true" />
-                  Fee vouchers
-                </h2>
-                <p className="card-sub">Monthly vouchers generated for every student, without you lifting a finger.</p>
-              </div>
-            </div>
-            <form onSubmit={handleSaveFee} className="card-pad stack" style={{ gap: 16 }}>
-              <label className="list-row" style={{ margin: 0, cursor: 'pointer', gap: 12 }}>
-                <input
-                  type="checkbox"
-                  id="acceptFeeVouchers"
-                  checked={feeForm.acceptFeeVouchers}
-                  onChange={e => setFeeForm({...feeForm, acceptFeeVouchers: e.target.checked})}
-                />
-                <span className="cell-stack">
-                  <b>Issue vouchers automatically</b>
-                  <span>Every student gets one on the day you choose, with a late fine after the due day.</span>
-                </span>
-              </label>
-
-              {feeForm.acceptFeeVouchers && (
-                <div className="form-grid form-grid-2">
-                  <label className="field">
-                    <span className="label">Issue day</span>
-                    <input
-                      type="number" min="1" max="28"
-                      className="input"
-                      value={feeForm.openDay}
-                      onChange={e => setFeeForm({...feeForm, openDay: parseInt(e.target.value)})}
-                    />
-                  </label>
-                  <label className="field">
-                    <span className="label">Due day</span>
-                    <input
-                      type="number" min="1" max="28"
-                      className="input"
-                      value={feeForm.lateDay}
-                      onChange={e => setFeeForm({...feeForm, lateDay: parseInt(e.target.value)})}
-                    />
-                  </label>
-                  <label className="field form-span-2">
-                    <span className="label">Late fine</span>
-                    <input
-                      type="number" min="0"
-                      className="input"
-                      value={feeForm.lateFee}
-                      onChange={e => setFeeForm({...feeForm, lateFee: parseInt(e.target.value)})}
-                    />
-                    <span className="field-hint">Added once, the day after the due date.</span>
-                  </label>
-                </div>
-              )}
-
-              <div className="row">
-                <button type="submit" className="btn btn-primary" disabled={savingFee}>
-                  {savingFee ? 'Saving…' : 'Save fee settings'}
-                </button>
-              </div>
-            </form>
           </section>
 
           <section className="card">
@@ -497,7 +452,7 @@ export default function Settings() {
 
               <div className="stack" style={{ gap: 8 }}>
                 <span className="label">Grade bands</span>
-                {grades.map((grade, index) => (
+                {(grades || []).map((grade, index) => (
                   <div className="row" key={index} style={{ gap: 8 }}>
                     <input
                       className="input input-sm"
@@ -572,7 +527,7 @@ export default function Settings() {
                 </button>
               </div>
             </div>
-            {roles.length === 0 ? (
+            {!(roles && roles.length > 0) ? (
               <p className="card-pad" style={{ color: 'var(--ink-3)', fontSize: '0.8125rem' }}>
                 No custom roles yet — staff use the default permissions for their designation.
               </p>
@@ -670,7 +625,6 @@ export default function Settings() {
               </span>
             </label>
           </section>
-
           <section className="card">
             <div className="card-head">
               <div className="card-head-copy">
@@ -684,6 +638,8 @@ export default function Settings() {
               Changing your own password is not available in the desktop panel yet. Use the web panel for now.
             </p>
           </section>
+
+          <GoogleDriveBackupSettings />
 
           <section className="card">
             <div className="card-head">

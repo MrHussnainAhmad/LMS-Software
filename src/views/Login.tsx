@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Building, Eye, EyeOff } from 'lucide-react';
-import { api, setAuthToken, runInitialSync } from '../utils/api';
+import { Eye, EyeOff } from 'lucide-react';
+import { api, setAuthTokens, runInitialSync } from '../utils/api';
 import './Login.css';
 
 export default function Login() {
@@ -31,9 +31,9 @@ export default function Login() {
         returnTokens: true
       });
       
-      if (resp.token || resp.accessToken) {
+      if ((resp.token || resp.accessToken) && resp.refreshToken) {
         const token = resp.token || resp.accessToken;
-        setAuthToken(token);
+        setAuthTokens(token, resp.refreshToken);
         window.dispatchEvent(new Event('auth-changed'));
         setSyncing(true);
         try {
