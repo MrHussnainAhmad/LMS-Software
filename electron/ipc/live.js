@@ -1,4 +1,5 @@
 const { API_ORIGIN } = require('../config');
+const { noteServerResponse } = require('../sync/reachability');
 
 // The renderer may access only this installation's API, never arbitrary hosts
 // with the user's bearer token. Do not follow redirects carrying credentials.
@@ -21,6 +22,7 @@ async function liveRequest({ endpoint, method = 'GET', headers = {}, body, form 
     delete allowed['content-type'];
   }
   const response = await fetch(url, { method, headers: allowed, body: payload, redirect: 'manual' });
+  noteServerResponse(response);
   return { status: response.status, headers: Object.fromEntries(response.headers), bytes: new Uint8Array(await response.arrayBuffer()) };
 }
 

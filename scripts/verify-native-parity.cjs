@@ -21,7 +21,7 @@ async function main() {
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const origin = `http://127.0.0.1:${server.address().port}`;
   try {
-    const { liveRequest } = load('electron/ipc/live.js', {'../config':{API_ORIGIN:origin}});
+    const { liveRequest } = load('electron/ipc/live.js', {'../config':{API_ORIGIN:origin}, '../sync/reachability': require('../electron/sync/reachability')});
     const response = await liveRequest({endpoint:'/api/file', headers:{Authorization:'Bearer test', 'X-Campus-View':'signed', cookie:'excluded'}});
     assert.deepEqual([...response.bytes], [0,255,42]);
     assert.equal(received[0].headers.authorization, 'Bearer test');

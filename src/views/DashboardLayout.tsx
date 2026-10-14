@@ -3,7 +3,8 @@ import Notifications from '../components/Notifications';
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { api, getSyncStatus } from '../utils/api';
+import { api, getSyncStatus, getAuthToken, runInitialSync } from '../utils/api';
+import { createVisiblePoll } from '../utils/visible-poll';
 import productLogo from '../../icon.png';
 import CommandPalette, { type NavTarget } from '../ui/CommandPalette';
 import Modal from '../ui/Modal';
@@ -127,15 +128,17 @@ export default function DashboardLayout() {
         if (active) setAdmissionAttentionCount(0);
       }
     }
-    void refreshAdmissionAttention();
-    const timer = window.setInterval(refreshAdmissionAttention, 60_000);
-    const refresh = () => { void refreshAdmissionAttention(); };
-    window.addEventListener('focus', refresh);
+    const poll = createVisiblePoll(refreshAdmissionAttention, { interval: 60_000, minRefreshGap: 5000 });
+    let eventTimer: ReturnType<typeof setTimeout>;
+    const refresh = () => {
+      clearTimeout(eventTimer);
+      eventTimer = setTimeout(() => { void poll.refresh(true); }, 250);
+    };
     window.addEventListener('admissions:updated', refresh);
     return () => {
       active = false;
-      window.clearInterval(timer);
-      window.removeEventListener('focus', refresh);
+      poll.stop();
+      clearTimeout(eventTimer);
       window.removeEventListener('admissions:updated', refresh);
     };
   }, []);
@@ -171,22 +174,18 @@ export default function DashboardLayout() {
   useEffect(() => {
     async function performStartupSync() {
       const isOnboarded = localStorage.getItem('nisaab_onboarded');
+      const token = getAuthToken();
+      const syncOnStart = () => token ? runInitialSync(token) : Promise.resolve();
       
       if (!isOnboarded) {
         setOverlayState('onboarding');
         try {
-           if (window.electronAPI?.sync?.pull) await window.electronAPI.sync.pull();
+           await syncOnStart();
         } catch (e) {}
       } else {
         setOverlayState('startup');
         try {
-           if (window.electronAPI?.sync?.pull) {
-             const p = window.electronAPI.sync.pull();
-             const timer = new Promise(r => setTimeout(r, 2000));
-             await Promise.all([p, timer]);
-           } else {
-             await new Promise(r => setTimeout(r, 2000));
-           }
+           await syncOnStart();
         } catch (e) {}
         setOverlayState('none');
       }

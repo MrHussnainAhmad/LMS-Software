@@ -1,4 +1,4 @@
-import { liveFetch } from './live-fetch';
+import { liveFetch, refreshSession } from './live-fetch';
 export const API_ORIGIN = window.electronAPI?.config?.apiOrigin || 'https://nisaab360.app';
 export const BASE_URL = window.electronAPI?.config?.apiBaseUrl || `${API_ORIGIN}/api`;
 
@@ -17,33 +17,7 @@ export const removeAuthToken = () => {
   sessionStorage.removeItem('campus_name');
 };
 
-let refreshInFlight: Promise<string> | null = null;
-
-async function refreshAccessToken() {
-  if (refreshInFlight) return refreshInFlight;
-  refreshInFlight = (async () => {
-    const refreshToken = getRefreshToken();
-    if (!refreshToken) throw new Error('Session expired');
-    const response = await liveFetch(`${BASE_URL}/auth/refresh`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refreshToken }),
-    });
-    if (!response.ok) throw new Error('Session expired');
-    const data = await response.json();
-    if (!data.accessToken || !data.refreshToken) throw new Error('Session expired');
-    setAuthTokens(data.accessToken, data.refreshToken);
-    await window.electronAPI?.auth?.setToken?.(data.accessToken);
-    return data.accessToken as string;
-  })();
-  try {
-    return await refreshInFlight;
-  } finally {
-    refreshInFlight = null;
-  }
-}
-
-function expireSession() {
+export function expireSession() {
   removeAuthToken();
   window.electronAPI?.auth?.clearToken?.();
   window.dispatchEvent(new Event('auth-changed'));
@@ -132,21 +106,10 @@ async function remoteRequest(method: string, endpoint: string, data?: unknown, o
     }
   }
 
-  let response = await liveFetch(`${BASE_URL}${endpoint}`, config);
-
-  if (response.status === 401 && endpoint !== '/auth/login' && endpoint !== '/auth/refresh') {
-    try {
-      const nextAccessToken = await refreshAccessToken();
-      headers.set('Authorization', `Bearer ${nextAccessToken}`);
-      response = await liveFetch(`${BASE_URL}${endpoint}`, config);
-    } catch {
-      expireSession();
-      throw new Error('Session expired. Please sign in again.');
-    }
-  }
+  const response = await liveFetch(`${BASE_URL}${endpoint}`, config);
 
   if (response.status === 401) {
-    expireSession();
+    if (getAuthToken() || getRefreshToken()) expireSession();
     throw new Error('Unauthorized');
   }
 
@@ -175,8 +138,9 @@ export const api = {
 
   async request(method: string, endpoint: string, data?: unknown, options: RequestOptions = {}) {
     if (hasElectronBridge() && options.responseType !== 'blob' && !requiresLiveServer(endpoint)) {
+      const sentToken = getAuthToken();
       try {
-        const result = await window.electronAPI!.data.request(method, endpoint, data, getAuthToken());
+        const result = await window.electronAPI!.data.request(method, endpoint, data, sentToken);
         if (method.toUpperCase() === 'POST' && endpoint === '/auth/login') {
           return result;
         }
@@ -184,10 +148,10 @@ export const api = {
       } catch (error: any) {
         if (error?.message?.includes('Unauthorized')) {
           try {
-            const nextAccessToken = await refreshAccessToken();
+            const nextAccessToken = await refreshSession(sentToken);
             return await window.electronAPI!.data.request(method, endpoint, data, nextAccessToken);
           } catch {
-            expireSession();
+            if (getAuthToken() || getRefreshToken()) expireSession();
           }
         }
         throw error;

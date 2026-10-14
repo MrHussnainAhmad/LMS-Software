@@ -1,15 +1,18 @@
-const { net } = require('electron');
+const { net, BrowserWindow } = require('electron');
 const { setOnlineStatus } = require('./engine');
 const { logSync } = require('./logger');
 const { API_BASE_URL } = require('../config');
 const { getMeta } = require('../db');
+const { hasRecentServerResponse } = require('./reachability');
 
 let lastOnline = null;
 let pollId = null;
 let probeRunning = false;
 let offlineDelayMs = 5_000;
+let monitorGeneration = 0;
 
 const ONLINE_PROBE_MS = 30_000;
+const IDLE_PROBE_MS = 120_000;
 const UNAUTHENTICATED_PROBE_MS = 60_000;
 const MAX_OFFLINE_PROBE_MS = 60_000;
 
@@ -27,6 +30,7 @@ async function probeInternet() {
   // The login request itself proves reachability. Do not generate backend health
   // traffic while the desktop app is merely sitting on its login screen.
   if (!getMeta('auth_token')) return true;
+  if (hasRecentServerResponse(ONLINE_PROBE_MS)) return true;
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 1500);
@@ -62,13 +66,15 @@ async function checkConnectivityProbe() {
 
 function startConnectivityMonitor() {
   if (pollId) clearTimeout(pollId);
+  const generation = ++monitorGeneration;
 
   const scheduleNext = () => {
+    if (generation !== monitorGeneration) return;
     const delay = !getMeta('auth_token')
       ? UNAUTHENTICATED_PROBE_MS
       : lastOnline === false
         ? offlineDelayMs
-        : ONLINE_PROBE_MS;
+        : hasRecentServerResponse(60_000) && BrowserWindow.getAllWindows().some(win => win.isVisible() && win.isFocused()) ? ONLINE_PROBE_MS : IDLE_PROBE_MS;
     pollId = setTimeout(async () => {
       await checkConnectivityProbe().catch(() => {});
       scheduleNext();
@@ -79,6 +85,7 @@ function startConnectivityMonitor() {
 }
 
 function stopConnectivityMonitor() {
+  monitorGeneration += 1;
   if (pollId) clearTimeout(pollId);
   pollId = null;
 }
