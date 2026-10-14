@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { ArrowUpCircle, AlertTriangle, CheckCircle2, Layers } from 'lucide-react';
 import { api } from '../utils/api';
@@ -109,7 +110,7 @@ export default function AutoPromotion() {
                         <span className="initials initials-accent" aria-hidden="true">
                           <Layers className="w-4 h-4" />
                         </span>
-                        <h3 style={{ fontSize: '0.9375rem', fontWeight: 650 }}>{batch.title}</h3>
+                        <Link to={`/promotion/${batch.id}`} className="underline">Review results</Link><h3 style={{ fontSize: '0.9375rem', fontWeight: 650 }}>{batch.title}</h3>
                       </div>
                       <p style={{ color: 'var(--ink-2)', fontSize: '0.8125rem' }}>
                         {batch.className}

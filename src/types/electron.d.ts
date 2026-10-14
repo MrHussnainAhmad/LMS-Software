@@ -9,6 +9,7 @@ declare global {
         apiBaseUrl: string;
       };
       data: {
+        live(request: { endpoint: string; method: string; headers: Record<string, string>; body?: string; form?: Array<{name: string; value?: string; bytes?: Uint8Array; filename?: string; type?: string}> }): Promise<{ status: number; headers: Record<string, string>; bytes: Uint8Array }>;
         request(method: string, endpoint: string, data?: unknown, authToken?: string | null): Promise<any>;
       };
       sync: {
@@ -34,6 +35,7 @@ declare global {
         }>>;
       };
       auth: {
+        googleDrive(url: string): Promise<{ code: string; state: string }>;
         setToken(token: string): Promise<{ success: boolean }>;
         clearToken(): Promise<{ success: boolean }>;
       };

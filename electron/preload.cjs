@@ -10,6 +10,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     apiBaseUrl: `${apiOrigin}/api`,
   },
   data: {
+    live(request) {
+      return ipcRenderer.invoke('api:live', request);
+    },
     request(method, endpoint, data, authToken) {
       return ipcRenderer.invoke('data:request', { method, endpoint, data, authToken });
     },
@@ -35,6 +38,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
   },
   auth: {
+    googleDrive(url) { return ipcRenderer.invoke('auth:google-drive', url); },
     setToken(token) {
       return ipcRenderer.invoke('auth:set-token', token);
     },

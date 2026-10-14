@@ -1,0 +1,15 @@
+import { useEffect, useState } from 'react';
+import { api } from '../utils/api';
+import { PageHead, ErrorNote } from '../ui/Bits';
+import { useToast } from '../ui/Feedback';
+type Status='PRESENT'|'ABSENT'|'LATE'|'LEAVE';
+export default function AttendanceEditor(){
+ const [date,setDate]=useState(new Date().toISOString().slice(0,10));const [ready,setReady]=useState('');
+ const [staff,setStaff]=useState<Array<{id:number;name:string}>>([]);const [records,setRecords]=useState<Record<number,Status>>({});
+ const [query,setQuery]=useState('');const [error,setError]=useState('');const [busy,setBusy]=useState(false);const toast=useToast();
+ useEffect(()=>{let active=true;setReady('');setError('');Promise.all([api.get('/institution/staff'),api.get(`/institution/staff-attendance?date=${date}`)]).then(([people,data])=>{if(!active)return;setStaff(people.staff);setRecords(Object.fromEntries(data.records.map((row:{staffId:number;status:Status})=>[row.staffId,row.status])));setReady(date);}).catch(cause=>{if(active)setError(cause.message);});return()=>{active=false;};},[date]);
+ const visible=staff.filter(person=>person.name.toLowerCase().includes(query.toLowerCase()));
+ async function save(){setBusy(true);setError('');try{const result=await api.post('/institution/staff-attendance',{date,records:Object.entries(records).map(([staffId,status])=>({staffId:Number(staffId),status}))});toast.success(result.queued?'Attendance saved on this device':'Attendance saved',result.queued?'Waiting for server synchronization.':undefined);}catch(cause:any){setError(cause.message);}finally{setBusy(false);}}
+ return <div className="page"><PageHead title="Staff attendance" subtitle="Mark attendance individually or for the filtered staff."/>{error&&<ErrorNote message={error}/>}<div className="row"><label className="field">Date<input className="input" type="date" value={date} disabled={busy} onChange={e=>setDate(e.target.value)}/></label><label className="field">Find staff<input className="input" value={query} onChange={e=>setQuery(e.target.value)}/></label></div>
+ <fieldset disabled={busy||ready!==date||Boolean(sessionStorage.getItem('campus_view'))} className="card card-pad stack"><div className="row">{(['PRESENT','ABSENT','LATE','LEAVE'] as Status[]).map(status=><button type="button" className="btn btn-quiet" key={status} onClick={()=>setRecords(previous=>({...previous,...Object.fromEntries(visible.map(person=>[person.id,status]))}))}>Mark filtered {status.toLowerCase()}</button>)}</div>{ready!==date?<p>Loading attendance…</p>:visible.map(person=><label className="list-row" key={person.id}><b>{person.name}</b><select className="select" aria-label={`Attendance for ${person.name}`} value={records[person.id]||''} onChange={e=>setRecords(previous=>({...previous,[person.id]:e.target.value as Status}))}><option value="" disabled>Not marked</option>{['PRESENT','ABSENT','LATE','LEAVE'].map(status=><option key={status}>{status}</option>)}</select></label>)}<button className="btn btn-primary" disabled={!Object.keys(records).length} onClick={()=>void save()}>{busy?'Saving…':'Save attendance'}</button></fieldset></div>;
+}

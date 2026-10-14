@@ -1,3 +1,4 @@
+import { liveFetch } from '../utils/live-fetch';
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -23,7 +24,9 @@ import { useConfirm, useToast } from '../ui/Feedback';
 import { IMAGE_FILE_ACCEPT, prepareImageUpload } from '../utils/upload-file';
 import CourseStreamingSettings from '../components/CourseStreamingSettings';
 import GoogleDriveBackupSettings from '../components/GoogleDriveBackupSettings';
-import PaymentGatewaySettings from '../components/PaymentGatewaySettings';
+import { PaymentAccountsSettings } from '@/components/PaymentAccountsSettings';
+import { InstitutionRestoreRequests } from '@/components/InstitutionRestoreRequests';
+import { CampusIdentity } from '../components/WorkspaceProvider';
 
 interface Profile {
   name: string;
@@ -121,7 +124,7 @@ export default function Settings() {
       if (!signature.folder) throw new Error('Upload folder is missing from the server response');
       form.append('folder', signature.folder);
       form.append('allowed_formats', signature.allowedFormats);
-      const response = await fetch(`https://api.cloudinary.com/v1_1/${signature.cloudName}/image/upload`, { method: 'POST', body: form });
+      const response = await liveFetch(`https://api.cloudinary.com/v1_1/${signature.cloudName}/image/upload`, { method: 'POST', body: form });
       const uploaded = await response.json();
       if (!response.ok || !uploaded.public_id) throw new Error(uploaded.error?.message || 'Cloudinary rejected the image');
       await api.post('/upload/complete', { publicId: uploaded.public_id, resourceType: uploaded.resource_type, imageOnly: true });
@@ -138,7 +141,7 @@ export default function Settings() {
   async function handleExport() {
     try {
       const token = getAuthToken();
-      const response = await fetch(`${BASE_URL}/institution/export`, {
+      const response = await liveFetch(`${BASE_URL}/institution/export`, {
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       });
       if (!response.ok) throw new Error('Failed to export institution data');
@@ -310,7 +313,7 @@ export default function Settings() {
         </div>
       </section>
 
-      <PaymentGatewaySettings />
+      <PaymentAccountsSettings /><CampusIdentity /><InstitutionRestoreRequests />
       <CourseStreamingSettings />
 
       <div className="cols-2">
@@ -635,7 +638,7 @@ export default function Settings() {
               </div>
             </div>
             <p className="card-pad" style={{ color: 'var(--ink-3)', fontSize: '0.8125rem' }}>
-              Changing your own password is not available in the desktop panel yet. Use the web panel for now.
+              <button className="btn btn-quiet" onClick={() => navigate('/change-password')}>Change your password</button>
             </p>
           </section>
 

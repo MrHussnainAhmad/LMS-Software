@@ -1,3 +1,5 @@
+import { useWorkspace } from '../components/WorkspaceProvider';
+import Notifications from '../components/Notifications';
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
@@ -90,10 +92,12 @@ const JUMP_KEYS: Record<string, string> = {
 
 export default function DashboardLayout() {
   const navigate = useNavigate();
+  const { workspace, switchCampus } = useWorkspace();
+  const [campusError, setCampusError] = useState('');
   const location = useLocation();
 
   const [campuses, setCampuses] = useState<any[]>([]);
-  const [selectedCampus, setSelectedCampus] = useState<any>({ id: 'all', name: 'All campuses' });
+  const [selectedCampus, setSelectedCampus] = useState<any>({ id: 'all', name: 'Your campus' });
   const [showCampusDropdown, setShowCampusDropdown] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
@@ -137,23 +141,10 @@ export default function DashboardLayout() {
   }, []);
 
   useEffect(() => {
-    async function fetchCampuses() {
-      try {
-        const data = await api.get('/institution/campuses');
-        const rows = data?.campuses || [];
-        setCampuses(rows);
-        const stored = localStorage.getItem('selected_campus_id');
-        if (stored && stored !== 'all') {
-          const matched = rows.find((c: any) => String(c.id) === stored);
-          if (matched) setSelectedCampus(matched);
-        }
-      } catch (err) {
-        console.error(err);
-        setCampuses([]);
-      }
-    }
-    fetchCampuses();
-  }, []);
+    if (!workspace) return;
+    setCampuses(workspace.role === 'INSTITUTION' ? workspace.campuses.filter(c => c.name === c.workspaceName) : []);
+    setSelectedCampus({ id: workspace.campusId, name: workspace.campusName });
+  }, [workspace]);
 
   useEffect(() => {
     let active = true;
@@ -289,11 +280,11 @@ export default function DashboardLayout() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [navigate]);
 
-  function selectCampus(campus: { id: number | string; name: string }) {
-    setSelectedCampus(campus);
-    localStorage.setItem('selected_campus_id', String(campus.id));
+  async function selectCampus(campus: { id: number | string; name: string }) {
+    setCampusError('');
+    try { await switchCampus(campus.id === 'all' ? 'home' : Number(campus.id)); }
+    catch (error: any) { setCampusError(error.message); }
     setShowCampusDropdown(false);
-    setCampusQuery('');
   }
 
   const handleLogout = async () => {
@@ -305,6 +296,9 @@ export default function DashboardLayout() {
     }
     localStorage.removeItem('nisaab_token');
     localStorage.removeItem('nisaab_refresh_token');
+    sessionStorage.removeItem('campus_view');
+    sessionStorage.removeItem('campus_name');
+    localStorage.removeItem('password_change_required');
     window.electronAPI?.auth?.clearToken?.();
     window.dispatchEvent(new Event('auth-changed'));
     navigate('/login');
@@ -470,9 +464,12 @@ export default function DashboardLayout() {
               <CircleHelp />
             </button>
           </div>
+          <Notifications />
         </header>
 
         <div className="canvas">
+          {campusError && <div role="alert" className="alert alert-warn">{campusError}</div>}
+          {sessionStorage.getItem('campus_view') && <div className="alert alert-warn"><span>Viewing {sessionStorage.getItem('campus_name')} read-only.</span><button className="btn btn-quiet" onClick={() => void selectCampus({id:'all',name:'Your campus'})}>Return to your campus</button></div>}
           <Outlet context={{ selectedCampus }} />
         </div>
       </main>
@@ -508,13 +505,13 @@ export default function DashboardLayout() {
             </div>
             <button
               type="button"
-              onClick={() => selectCampus({ id: 'all', name: 'All campuses' })}
+              onClick={() => selectCampus({ id: 'all', name: 'Your campus' })}
               className={`menu-item ${selectedCampus.id === 'all' ? 'is-active' : ''}`}
               role="option"
               aria-selected={selectedCampus.id === 'all'}
             >
               <Building2 />
-              <span>All campuses</span>
+              <span>Your campus</span>
               {selectedCampus.id === 'all' && <Check />}
             </button>
             <div className="menu-sep" aria-hidden="true" />

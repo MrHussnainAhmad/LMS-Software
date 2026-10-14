@@ -34,6 +34,14 @@ export default function Login() {
       if ((resp.token || resp.accessToken) && resp.refreshToken) {
         const token = resp.token || resp.accessToken;
         setAuthTokens(token, resp.refreshToken);
+        sessionStorage.removeItem('campus_view');
+        sessionStorage.removeItem('campus_name');
+        localStorage.setItem('password_change_required', resp.mustChangePassword ? '1' : '0');
+        if (resp.mustChangePassword) {
+          window.dispatchEvent(new Event('auth-changed'));
+          navigate('/change-password');
+          return;
+        }
         window.dispatchEvent(new Event('auth-changed'));
         setSyncing(true);
         try {

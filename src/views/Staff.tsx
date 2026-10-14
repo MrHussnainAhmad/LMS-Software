@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { api } from '../utils/api';
@@ -237,7 +238,7 @@ export default function Staff() {
                         <div className="row">
                           <span className="initials" aria-hidden="true">{initialsOf(person.name)}</span>
                           <span className="cell-stack">
-                            <b className="tbl-strong">{person.name}</b>
+                            <Link className="tbl-strong underline" to={`/staff/${person.id}/performance`}>{person.name}</Link>
                             {person.phone && <span>{person.phone}</span>}
                           </span>
                         </div>

@@ -1,3 +1,4 @@
+import { liveFetch } from './live-fetch';
 export const API_ORIGIN = window.electronAPI?.config?.apiOrigin || 'https://nisaab360.app';
 export const BASE_URL = window.electronAPI?.config?.apiBaseUrl || `${API_ORIGIN}/api`;
 
@@ -11,6 +12,9 @@ export const setAuthTokens = (accessToken: string, refreshToken: string) => {
 export const removeAuthToken = () => {
   localStorage.removeItem('nisaab_token');
   localStorage.removeItem('nisaab_refresh_token');
+  localStorage.removeItem('password_change_required');
+  sessionStorage.removeItem('campus_view');
+  sessionStorage.removeItem('campus_name');
 };
 
 let refreshInFlight: Promise<string> | null = null;
@@ -20,7 +24,7 @@ async function refreshAccessToken() {
   refreshInFlight = (async () => {
     const refreshToken = getRefreshToken();
     if (!refreshToken) throw new Error('Session expired');
-    const response = await fetch(`${BASE_URL}/auth/refresh`, {
+    const response = await liveFetch(`${BASE_URL}/auth/refresh`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ refreshToken }),
@@ -65,7 +69,16 @@ function hasElectronBridge() {
 // These modules depend on current server state and must never be satisfied by
 // the offline SQLite cache or queued as optimistic generic writes.
 function requiresLiveServer(endpoint: string) {
-  return endpoint.startsWith('/course-streaming')
+  return Boolean(sessionStorage.getItem('campus_view'))
+    || endpoint.startsWith('/auth/')
+    || endpoint.startsWith('/institution/workspace')
+    || endpoint.startsWith('/institution/campuses')
+    || endpoint.startsWith('/institution/campus-view')
+    || endpoint.startsWith('/institution/public-events')
+    || endpoint.startsWith('/institution/restore-requests')
+    || endpoint.startsWith('/institution/students/auto-promote')
+    || endpoint.startsWith('/institution/settings/payment-accounts')
+    || endpoint.startsWith('/course-streaming')
     || endpoint.startsWith('/institution/courses')
     || /^\/institution\/(students|staff)\/\d+/.test(endpoint)
     || endpoint.startsWith('/institution/public-site')
@@ -119,13 +132,13 @@ async function remoteRequest(method: string, endpoint: string, data?: unknown, o
     }
   }
 
-  let response = await fetch(`${BASE_URL}${endpoint}`, config);
+  let response = await liveFetch(`${BASE_URL}${endpoint}`, config);
 
   if (response.status === 401 && endpoint !== '/auth/login' && endpoint !== '/auth/refresh') {
     try {
       const nextAccessToken = await refreshAccessToken();
       headers.set('Authorization', `Bearer ${nextAccessToken}`);
-      response = await fetch(`${BASE_URL}${endpoint}`, config);
+      response = await liveFetch(`${BASE_URL}${endpoint}`, config);
     } catch {
       expireSession();
       throw new Error('Session expired. Please sign in again.');
