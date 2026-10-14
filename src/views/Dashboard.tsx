@@ -6,7 +6,7 @@ import {
   PieChart, Pie, Cell, BarChart, Bar, CartesianGrid
 } from 'recharts';
 import {
-  Building2, Users, GraduationCap, BookOpen, Bell, CalendarDays, ArrowRight,
+  Building2, Users, GraduationCap, Bell, CalendarDays, ArrowRight,
   TrendingUp, PieChart as PieIcon, ClipboardCheck, Megaphone,
 } from 'lucide-react';
 import PageSkeleton from '../components/PageSkeleton';

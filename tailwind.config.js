@@ -23,7 +23,8 @@ export default {
         'rail-ink': '#AEB6C6',
         'rail-ink-2': '#7A8497',
         /* Brand navy */
-        brand: '#2C3A5C',
+        brand: { DEFAULT: '#2C3A5C', 50: '#eef2f8', 100: '#dce5f1', 200: '#bbcbe2', 300: '#95accd', 400: '#748db5', 500: '#56749f', 600: '#405c84', 700: '#344b6b', 800: '#2c3a5c', 900: '#1f2a45', 950: '#131a2a' },
+        border: '#E5E3DD', danger: '#B0433D', success: '#14795A', foreground: '#1B2130',
         'brand-2': '#1F2A45',
         'brand-soft': '#EDEFF5',
         /* Amber accent */

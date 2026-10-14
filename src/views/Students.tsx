@@ -1,3 +1,4 @@
+import { liveFetch } from '../utils/live-fetch';
 import React, { useEffect, useMemo, useState, useDeferredValue } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { api, API_ORIGIN, BASE_URL, getAuthToken } from '../utils/api';
@@ -124,7 +125,7 @@ export default function Students() {
       const formData = new FormData();
       formData.append('file', importFile);
 
-      const response = await fetch(`${BASE_URL}/institution/students/import`, {
+      const response = await liveFetch(`${BASE_URL}/institution/students/import`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,

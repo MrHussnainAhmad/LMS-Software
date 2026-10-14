@@ -1,13 +1,18 @@
+import { ToastBridge } from '@/components/ui/toaster';
 import React, { useEffect, useMemo, useState, Suspense } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Download, X } from 'lucide-react';
 import Login from './views/Login';
 import DashboardLayout from './views/DashboardLayout';
+import ChangePassword from './views/ChangePassword';
+import { WorkspaceProvider } from './components/WorkspaceProvider';
 const Dashboard = React.lazy(() => import('./views/Dashboard'));
-const Campuses = React.lazy(() => import('./views/Campuses'));
+const Campuses = React.lazy(() => import('./views/CampusWorkspaces'));
+const TeacherPerformance = React.lazy(() => import('./views/TeacherPerformance'));
+const PromotionReview = React.lazy(() => import('./views/PromotionReview'));
 const Staff = React.lazy(() => import('./views/Staff'));
 const Students = React.lazy(() => import('./views/Students'));
-const Attendance = React.lazy(() => import('./views/Attendance'));
+const Attendance = React.lazy(() => import('./views/AttendanceEditor'));
 const Results = React.lazy(() => import('./views/Results'));
 const DailyDiary = React.lazy(() => import('./views/DailyDiary'));
 const AutoPromotion = React.lazy(() => import('./views/AutoPromotion'));
@@ -26,6 +31,7 @@ const Academics = React.lazy(() => import('./views/Academics'));
 const Courses = React.lazy(() => import('./views/Courses'));
 const Holidays = React.lazy(() => import('./views/Holidays'));
 const PublicEvents = React.lazy(() => import('./views/PublicEvents'));
+import { AuthenticatedFiles } from './components/AuthenticatedFiles';
 import { FeedbackProvider } from './ui/Feedback';
 
 type UpdateInfo = {
@@ -36,6 +42,7 @@ type UpdateInfo = {
 export default function App() {
   const [bootChecked, setBootChecked] = useState(false);
   const [isAuthed, setIsAuthed] = useState<boolean>(Boolean(localStorage.getItem('nisaab_token')));
+  const [passwordRequired, setPasswordRequired] = useState(localStorage.getItem('password_change_required') === '1');
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
 
   useEffect(() => {
@@ -85,7 +92,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const refreshAuth = () => setIsAuthed(Boolean(localStorage.getItem('nisaab_token')));
+    const refreshAuth = () => { setIsAuthed(Boolean(localStorage.getItem('nisaab_token'))); setPasswordRequired(localStorage.getItem('password_change_required') === '1'); };
     window.addEventListener('auth-changed', refreshAuth as EventListener);
     window.addEventListener('hashchange', refreshAuth);
     return () => {
@@ -101,13 +108,17 @@ export default function App() {
   return (
     <FeedbackProvider>
       <HashRouter>
+      <AuthenticatedFiles /><ToastBridge />
       <Suspense fallback={null}>
         <Routes>
           <Route path="/login" element={isAuthed ? <Navigate to="/dashboard" replace /> : <Login />} />
+          <Route path="/change-password" element={isAuthed ? <ChangePassword /> : <Navigate to="/login" replace />} />
           
-          <Route element={isAuthed ? <DashboardLayout /> : <Navigate to="/login" replace />}>
+          <Route element={isAuthed ? passwordRequired ? <Navigate to="/change-password" replace /> : <WorkspaceProvider><DashboardLayout /></WorkspaceProvider> : <Navigate to="/login" replace />}>
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/campuses" element={<Campuses />} />
+            <Route path="/staff/:id/performance" element={<TeacherPerformance />} />
+            <Route path="/promotion/:id" element={<PromotionReview />} />
             <Route path="/staff" element={<Staff />} />
             <Route path="/students" element={<Students />} />
             <Route path="/academics" element={<Academics />} />

@@ -307,7 +307,7 @@ export default function Timetable() {
                   <button type="button" aria-pressed={filterDay === 'all'} onClick={() => setFilterDay('all')}>
                     All week
                   </button>
-                  {DAYS.map((day, i) => {
+                  {DAYS.map((_day, i) => {
                     // Only show days with entries in list mode, show all in overview
                     if (viewMode === 'list' && !daysWithEntries.includes(i)) return null;
                     return (

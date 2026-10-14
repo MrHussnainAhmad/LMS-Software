@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Tray, Menu, nativeImage } = require('electron');
+const { app, BrowserWindow, Tray, Menu, nativeImage, shell } = require('electron');
 const path = require('path');
 const { registerIpcHandlers } = require('./ipc/handlers');
 const { startConnectivityMonitor, stopConnectivityMonitor } = require('./sync/connectivity');
@@ -31,6 +31,16 @@ function createWindow() {
     },
     autoHideMenuBar: true,
     icon: path.join(__dirname, '../icon.png'),
+  });
+
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith('blob:')) return { action: 'allow', overrideBrowserWindowOptions: { webPreferences: { preload: undefined, nodeIntegration: false, contextIsolation: true, sandbox: true } } };
+    if (/^https?:/.test(url)) void shell.openExternal(url);
+    return { action: 'deny' };
+  });
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    const trusted = isDev ? url.startsWith('http://localhost:5173/') : url.startsWith('file:') && url.split('#')[0] === mainWindow.webContents.getURL().split('#')[0];
+    if (!trusted) { event.preventDefault(); if (/^https?:/.test(url)) void shell.openExternal(url); }
   });
 
   if (isDev) {

@@ -246,7 +246,18 @@ function handleGet(endpoint) {
   if (path === '/institution/exams') return getCache('GET:/institution/exams') || { examRows: [], examGroups: [] };
   if (path === '/institution/settings/grading') return getCache('GET:/institution/settings/grading') || { scales: [] };
   if (path === '/institution/students/auto-promote') return getCache('GET:/institution/students/auto-promote') || { classes: [] };
-  if (path === '/institution/staff-attendance') return getCache(`GET:${endpoint}`) || getCache(`GET:/institution/staff-attendance?date=${params.get('date')}`) || { records: [] };
+  if (path === '/institution/staff-attendance') {
+    const date = params.get('date');
+    const pending = db.prepare("SELECT payload_json, sync_status FROM sync_queue WHERE endpoint = ? AND method = 'POST' ORDER BY id DESC").all(path);
+    for (const row of pending) {
+      const payload = JSON.parse(row.payload_json);
+      if (payload.date === date) {
+        if (row.sync_status !== 'synced') return { records: payload.records, pendingSync: true };
+        break;
+      }
+    }
+    return getCache(`GET:${endpoint}`) || getCache(`GET:/institution/staff-attendance?date=${date}`) || { records: [] };
+  }
   if (path === '/institution/leaves') return getCache(`GET:${endpoint}`) || { leaves: [] };
   if (path === '/institution/tickets') return getCache(`GET:${endpoint}`) || { tickets: [] };
   if (path === '/institution/timetable') return getCache(`GET:${endpoint}`) || getCache('GET:/institution/timetable?metadata=true') || { entries: [], allClasses: [], allSections: [] };
@@ -360,6 +371,9 @@ function handleWrite(method, endpoint, data) {
       serverId: params.get('id') ? Number(params.get('id')) : null,
     });
     setCache(`WRITE:${method}:${endpoint}`, payload);
+    if (method === 'POST' && path === '/institution/staff-attendance') {
+      setCache(`GET:/institution/staff-attendance?date=${payload.date}`, { records: payload.records });
+    }
     schedulePushSoon();
     return { success: true, queued: true, clientUuid };
   }

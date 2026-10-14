@@ -1,6 +1,6 @@
 const { ipcMain, app, shell } = require('electron');
 const { initDatabase, getMeta, setMeta } = require('../db');
-const { handleDataRequest } = require('../data/router');
+const { handleDataRequest, setCache } = require('../data/router');
 const { runInitialSync, runPushCycle, getSyncStatus } = require('../sync/engine');
 const { getRecentLogs } = require('../sync/logger');
 const { remoteRequest } = require('../sync/remote');
@@ -26,6 +26,17 @@ function isVersionNewer(candidate, current) {
 
 function registerIpcHandlers() {
   initDatabase();
+
+  ipcMain.handle('api:live', async (event, request) => {
+    const source = event.senderFrame?.url || '';
+    if (!(source.startsWith('file:') || source.startsWith('http://localhost:5173/'))) throw new Error('Untrusted renderer');
+    return require('./live').liveRequest(request);
+  });
+  ipcMain.handle('auth:google-drive', async (event, url) => {
+    const source = event.senderFrame?.url || '';
+    if (!(source.startsWith('file:') || source.startsWith('http://localhost:5173/'))) throw new Error('Untrusted renderer');
+    return require('./google-drive').authorizeGoogleDrive(require('electron').BrowserWindow.fromWebContents(event.sender), url);
+  });
 
   ipcMain.handle('sync:initial', async (_event, token) => {
     return runInitialSync(token);
@@ -68,6 +79,19 @@ function registerIpcHandlers() {
     // Local-first policy: GET reads should be instant from local DB/cache.
     // Explicit network-backed routes can still bypass this branch (e.g. export).
     if (upper === 'GET') {
+      if (endpoint.startsWith('/institution/staff-attendance?') && online && token) {
+        const cached = handleDataRequest('GET', endpoint, data);
+        if (cached.pendingSync) return cached;
+        try {
+          const current = await remoteRequest('GET', endpoint, undefined, token);
+          setCache(`GET:${endpoint}`, current);
+          // A local write may have arrived while the request was in flight.
+          return handleDataRequest('GET', endpoint, data);
+        } catch (error) {
+          if (error.status === 401 || error.status === 403) throw error;
+          return cached;
+        }
+      }
       return handleDataRequest('GET', endpoint, data);
     }
 

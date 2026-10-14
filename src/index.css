@@ -2,6 +2,18 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer components {
+  .ui-card-padding { padding: 1.25rem; }
+  @media (min-width: 640px) {
+    .ui-card-padding { padding: 1.5rem; }
+  }
+}
+
+@layer utilities {
+  .focus-ring { outline: 2px solid transparent; outline-offset: 2px; }
+  .focus-ring:focus-visible { outline-color: #405c84; }
+}
+
 /* ==========================================================================
    Nisaab360 — Institution Workspace
    A single source of truth. Semantic component classes, no override layer,

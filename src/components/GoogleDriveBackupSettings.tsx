@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useToast, useConfirm } from '../ui/Feedback';
-import { api } from '../utils/api';
+import { api, getAuthToken } from '../utils/api';
 import { CheckCircle2, HardDrive, Trash2, XCircle } from 'lucide-react';
 import PageSkeleton from './PageSkeleton';
 
@@ -43,9 +43,13 @@ export default function GoogleDriveBackupSettings() {
   const handleConnect = async () => {
     setConnecting(true);
     try {
-      const data = await api.get('/institution/settings/google-drive/connect');
-      if (data.authorizationUrl) {
-        window.location.href = data.authorizationUrl;
+      {
+        if (!window.electronAPI?.auth.googleDrive) throw new Error('Open the desktop app to connect Google Drive.');
+        const result = await window.electronAPI.auth.googleDrive(getAuthToken() || '');
+        await api.post(`/institution/settings/google-drive/connect?${new URLSearchParams(result)}`, {});
+        toast.success('Google Drive connected');
+        await fetchStatus();
+        setConnecting(false);
       }
     } catch (err: any) {
       toast.error('Could not connect Google Drive', err.message);
