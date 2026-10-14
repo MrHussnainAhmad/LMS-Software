@@ -233,10 +233,6 @@ async function pullAll(token) {
       ['GET', '/institution/dashboard', 'dashboard'],
       ['GET', '/institution/dashboard/charts', 'charts'],
       ['GET', '/institution/settings', 'settings'],
-      ['GET', '/institution/settings/google-drive', 'google-drive'],
-      ['GET', '/institution/settings/google-drive/connect', 'google-drive-connect'],
-      ['GET', '/institution/settings/payment-gateway', 'payment-gateway'],
-      ['GET', '/course-streaming', 'course-streaming'],
       ['GET', '/institution/batch-exams', 'batch-exams'],
       ['GET', '/institution/timetable?metadata=true', 'timetable-meta'],
       ['GET', '/institution/timetable', 'timetable'],
@@ -247,19 +243,22 @@ async function pullAll(token) {
       ['GET', '/institution/exams', 'exams'],
       ['GET', '/institution/tickets?filter=open', 'tickets'],
       ['GET', '/institution/settings/grading', 'grading'],
-      ['GET', '/institution/students/auto-promote', 'auto-promote'],
     ];
 
-    const results = await Promise.all(
-      endpoints.map(async ([method, path]) => {
+    // Seed core offline data with bounded parallelism. Live-only settings and
+    // OAuth connect URLs are loaded only when their screens need them.
+    const results = [];
+    for (let start = 0; start < endpoints.length; start += 4) {
+      const batch = await Promise.all(endpoints.slice(start, start + 4).map(async ([method, path]) => {
         try {
           const data = await remoteRequest(method, path, undefined, token);
           return { path, data };
         } catch {
           return { path, data: null };
         }
-      })
-    );
+      }));
+      results.push(...batch);
+    }
 
     const byPath = Object.fromEntries(results.map((r) => [r.path, r.data]));
     const campusesRes = byPath['/institution/campuses'] || { campuses: [] };

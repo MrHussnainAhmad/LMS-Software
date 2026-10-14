@@ -1,7 +1,8 @@
 import { desktopFetch } from '@/lib/desktop-fetch';
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { createVisiblePoll } from '../../utils/visible-poll';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import type { RestorePreview } from '@/lib/institution-restore-engine';
@@ -26,17 +27,33 @@ export function InstitutionRestoreRequests({ administrator = false, institutions
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const [consent, setConsent] = useState<Record<number, boolean>>({});
+  const itemsRef = useRef<RequestItem[]>([]);
+  const pollRef = useRef<ReturnType<typeof createVisiblePoll> | null>(null);
+  const generation = useRef(0);
   const load = useCallback(async () => {
+    const requestGeneration = generation.current;
     const response = await desktopFetch(institutionId ? `${base}?institutionId=${institutionId}` : base, { cache: 'no-store' });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || 'Could not load restore requests.');
+    if (requestGeneration !== generation.current) return;
     setItems(data.items);
+    itemsRef.current = data.items;
   }, [base, institutionId]);
   useEffect(() => {
-    const reload = () => { void load().catch(error => setMessage(error instanceof Error ? error.message : 'Could not load requests.')); };
-    const initial = window.setTimeout(reload, 0);
-    const interval = window.setInterval(reload, 10_000);
-    return () => { window.clearTimeout(initial); window.clearInterval(interval); };
+    let active = true;
+    itemsRef.current = [];
+    const poll = createVisiblePoll(async () => {
+      try { await load(); }
+      catch (error) {
+        if (active) setMessage(error instanceof Error ? error.message : 'Could not load requests.');
+        throw error;
+      }
+    }, {
+      interval: () => itemsRef.current.some(item => /_(PENDING|RUNNING)$/.test(item.status)) ? 10_000 : 60_000,
+      shouldPoll: () => itemsRef.current.some(item => !['COMPLETED', 'FAILED', 'REJECTED'].includes(item.status)),
+    });
+    pollRef.current = poll;
+    return () => { active = false; generation.current += 1; poll.stop(); pollRef.current = null; };
   }, [load]);
 
   async function upload(event: React.FormEvent<HTMLFormElement>) {
@@ -52,7 +69,7 @@ export function InstitutionRestoreRequests({ administrator = false, institutions
       if (!response.ok) throw new Error(result.error || 'Upload failed.');
       form.reset();
       setMessage(`Request #${result.id} submitted. The preview will appear here when ready.`);
-      await load();
+      await pollRef.current?.refresh(true);
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Upload failed.'); }
     finally { setBusy(false); }
   }
@@ -64,7 +81,7 @@ export function InstitutionRestoreRequests({ administrator = false, institutions
       if (!response.ok) throw new Error(result.error || 'Request failed.');
       setConsent(previous => ({ ...previous, [item.id]: false }));
       setMessage(value === 'recovery' ? `Recovery request #${result.id} created. The owner must approve its preview.` : 'Request updated.');
-      await load();
+      await pollRef.current?.refresh(true);
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Request failed.'); }
     finally { setBusy(false); }
   }
@@ -86,7 +103,7 @@ export function InstitutionRestoreRequests({ administrator = false, institutions
         <Button disabled={busy} type="submit">Submit restore request</Button>
       </form>}
       {message && <p role="status" className="rounded-md border p-3 text-sm">{message}</p>}
-      <Button variant="outline" disabled={busy} onClick={() => void load().catch(error => setMessage(error.message))}>Refresh requests</Button>
+      <Button variant="outline" disabled={busy} onClick={() => void pollRef.current?.refresh(true)}>Refresh requests</Button>
       {items.length === 0 && <p className="text-sm text-stone-500">No restore requests.</p>}
       {items.map(item => <section key={item.id} className="space-y-4 rounded-md border p-4">
         <div className="flex flex-wrap justify-between gap-2">

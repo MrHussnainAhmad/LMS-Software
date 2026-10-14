@@ -1,5 +1,6 @@
 const { getMeta } = require('../db');
 const { API_BASE_URL } = require('../config');
+const { noteServerResponse } = require('./reachability');
 
 const BASE_URL = API_BASE_URL;
 
@@ -15,6 +16,7 @@ async function remoteRequest(method, endpoint, body, tokenOverride) {
   }
 
   const response = await fetch(`${BASE_URL}${endpoint}`, config);
+  noteServerResponse(response);
   const contentType = response.headers.get('content-type') || '';
 
   let data = null;

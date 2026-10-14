@@ -28,6 +28,14 @@ import { PaymentAccountsSettings } from '@/components/PaymentAccountsSettings';
 import { InstitutionRestoreRequests } from '@/components/InstitutionRestoreRequests';
 import { CampusIdentity } from '../components/WorkspaceProvider';
 
+function SettingsSection({ title, children }: { title: string; children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return <details className="card" onToggle={event => setOpen(event.currentTarget.open)}>
+    <summary className="card-pad" style={{ cursor: 'pointer', fontWeight: 600 }}>{title}</summary>
+    {open && <div className="card-pad">{children}</div>}
+  </details>;
+}
+
 interface Profile {
   name: string;
   type: string;
@@ -313,8 +321,10 @@ export default function Settings() {
         </div>
       </section>
 
-      <PaymentAccountsSettings /><CampusIdentity /><InstitutionRestoreRequests />
-      <CourseStreamingSettings />
+      <CampusIdentity />
+      <SettingsSection title="Payment accounts"><PaymentAccountsSettings /></SettingsSection>
+      <SettingsSection title="Restore requests"><InstitutionRestoreRequests /></SettingsSection>
+      <SettingsSection title="Video streaming"><CourseStreamingSettings /></SettingsSection>
 
       <div className="cols-2">
         {/* ---------------------------------------------------------------- */}
@@ -642,7 +652,7 @@ export default function Settings() {
             </p>
           </section>
 
-          <GoogleDriveBackupSettings />
+          <SettingsSection title="Google Drive backup"><GoogleDriveBackupSettings /></SettingsSection>
 
           <section className="card">
             <div className="card-head">

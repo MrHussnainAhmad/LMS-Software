@@ -8,6 +8,7 @@ let online = true;
 let pushTimer = null;
 let running = false;
 const FULL_PULL_FRESH_MS = 15 * 60 * 1000;
+let initialSyncInFlight = null;
 
 function getTokenIdentity(token) {
   try {
@@ -50,7 +51,7 @@ async function runPushCycle() {
   }
 }
 
-async function runInitialSync(token) {
+async function performInitialSync(token) {
   setMeta('auth_token', token);
   const identity = getTokenIdentity(token);
   const sameAccount = Boolean(identity) && getMeta('sync_identity') === identity;
@@ -64,6 +65,17 @@ async function runInitialSync(token) {
   if (identity) setMeta('sync_identity', identity);
   if (online) await pushPendingBatch(token);
   return { success: true };
+}
+
+function runInitialSync(token) {
+  const identity = getTokenIdentity(token) || token;
+  if (initialSyncInFlight?.identity === identity) return initialSyncInFlight.promise;
+  const entry = { identity, promise: null };
+  entry.promise = performInitialSync(token).finally(() => {
+    if (initialSyncInFlight === entry) initialSyncInFlight = null;
+  });
+  initialSyncInFlight = entry;
+  return entry.promise;
 }
 
 async function runMidnightPull() {
